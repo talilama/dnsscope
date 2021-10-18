@@ -19,7 +19,7 @@ import logging
 progname = 'DNSscope'
 parser = argparse.ArgumentParser(description='Takes a list of IPs and look for domains/subdomains that are associated with them or vice versa')
 parser.add_argument('-i', '--infile', help='File with IPs to check DNS records', required=True)
-parser.add_argument('-o', '--outfile', help='Output file. Default is ./%s_results.txt', default='%s_results.txt' % progname)
+parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_results.txt', default='DNSscope_results.txt')
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with TLDs to run subdomain enumeration')
 parser.add_argument('-n', '--noninteractive', help='Don\'t prompt for running additional subdomain enumeration on discovered TLDs/FLDs. This will only run subdomain enumeration on the initial domains provided with --domain or --domains. (Default behavior is to prompt for newly discovered TLDs/FLDs', action='store_true')
@@ -132,13 +132,11 @@ def rDNS(ip):
         for name in r.query(rev,"PTR"):
             name = str(name).rstrip('.')
             if "in-addr.arpa" in name: continue
-            if not args.quiet:
-                log("(+) rDNS DISCOVERY! %s" %name)
+            log("(+) rDNS DISCOVERY! %s" %name)
             if not alreadyProcessed(name):
                 Dq.add(name)
     except: 
-        if not args.quiet:
-            log("rDNS lookup failed on: " + ip)
+        log("rDNS lookup failed on: " + ip)
 
 def get_certificate(host, port=443):
     try:
@@ -156,8 +154,7 @@ def get_certificate(host, port=443):
 def TLSenum(hostname,port=443):
     # This should actually grab CN and SAN. Returns List in format of hostname/ip,CN,SAN,SAN,SAN,SAN,etc.
     try:
-        if not args.quiet:
-            log("Attempting to get certificate for %s" % hostname)
+        log("Attempting to get certificate for %s" % hostname)
         certificate = get_certificate(hostname,port)
         x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, certificate)
     
@@ -176,8 +173,7 @@ def TLSenum(hostname,port=443):
         for s in SANs:
             SAN = s.split(":")[1].lower()
             certdata.add(SAN)
-        if not args.quiet:
-            log("(+) Success")
+        log("(+) Success")
         for x in certdata:
             if not alreadyProcessed(x):
                 log("(+) TLSENUM DISCOVERY! ADDING TO QUEUE: %s" %x)
@@ -188,8 +184,7 @@ def TLSenum(hostname,port=443):
                     Dq.add(x)
         return certdata
     except: 
-        if not args.quiet:
-            log("(-) Failed")
+        log("(-) Failed")
         return False
 
 def newFLD(fld):
@@ -223,28 +218,25 @@ def newFLD(fld):
             print("Please choose y/n")
 
 def log(string):
-    print(string)
+    if not args.quiet: print(string)
     logging.info(string)
 
 # Do a forward DNS lookup for a domain names and add to inscope/outscope/dead_domains
 def fDNS(name):
-    if not args.quiet:
-        log("Forward DNS lookup for %s" % name)
+    log("Forward DNS lookup for %s" % name)
     try:
         ips = r.query(name, "A")
         for ip in ips:
             ip = str(ip)
             if not alreadyProcessed(ip) and isIP(ip):
-                if not args.quiet:
-                    log("(+) DNS IP DISCOVERY! ADDING TO QUEUE: %s" %ip)
+                log("(+) DNS IP DISCOVERY! ADDING TO QUEUE: %s" %ip)
                 IPq.add(ip)
             if ip in inscope.keys(): inscope[ip].add(name)
             elif ip in outscope.keys(): outscope[ip].add(name)
             else: outscope[ip] = [name]
         return True
     except: 
-        if not args.quiet:
-            log("(-) fDNS lookup failed on: " + name)
+        log("(-) fDNS lookup failed on: " + name)
         dead_domains.add(name)
         return False
 
@@ -275,8 +267,7 @@ def SDenum(domain):
     for subdomain in subdomains:
         subdomain = subdomain.lower()
         if not alreadyProcessed(subdomain) and subdomain != domain:
-            if not args.quiet:
-                log("(+) SUBDOMAIN ENUM DISCOVERY: ADDING TO QUEUE: %s" %subdomain)
+            log("(+) SUBDOMAIN ENUM DISCOVERY: ADDING TO QUEUE: %s" %subdomain)
             Dq.add(subdomain)
     return subdomains
 
@@ -317,9 +308,8 @@ if __name__ == '__main__':
     while (Dq or IPq):
         if Dq: 
             domain = Dq.pop()
-            if not args.quiet:
-                log("")
-                log("Processing domain: %s" %domain)
+            log("")
+            log("Processing domain: %s" %domain)
             fDNS(domain)
             fld = get_fld(domain, fix_protocol=True)
             if not alreadyProcessed(fld) and fld not in flds_processed:
@@ -328,20 +318,17 @@ if __name__ == '__main__':
                 if domain not in dead_domains:
                     for port in ports:
                         TLSenum(domain,port)
-            if not args.quiet:
-                log("Finished processing domain: %s" %domain)
+            log("Finished processing domain: %s" %domain)
             processed.add(domain)
         if IPq: 
             ip = IPq.pop()
-            if not args.quiet:
-                log("")
-                log("Processing IP: %s" %ip)
+            log("")
+            log("Processing IP: %s" %ip)
             rDNS(ip)
             if ip in inscope or args.tlsall:
                 for port in ports:
                     TLSenum(ip,port)
-            if not args.quiet:
-                log("Finished Processing IP: %s" %ip)
+            log("Finished Processing IP: %s" %ip)
             processed.add(ip)
     
     print("-------------------------------------")
