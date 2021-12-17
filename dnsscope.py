@@ -61,9 +61,11 @@ def readips():
             IPq.add(ip)
 
 def printout():
-    print("\n\nExcplicitly In scope (resolves to IP provided in infile:\n")
-    for x in inscope: print(x + ":" + ','.join(str(s) for s in inscope[x]))
-    print("\n\nTentatively in scope (IP not in provided infile but TLD determined to be in scope:\n")
+    print("\n\nExplicitly In scope (resolves to IP provided in infile):\n")
+    for x in inscope: 
+        if inscope[x]:
+            print(x + ":" + ','.join(str(s) for s in inscope[x]))
+    print("\n\nTentatively in scope (IP not in provided infile but TLD determined to be in scope):\n")
     outscope1 = {}
     for y in outscope:
         inscopeFLD = False
@@ -78,7 +80,7 @@ def printout():
         else: outscope1[y] = outscope[y]
     print("\n\nOut of scope:\n")
     for y in outscope1: print(y + ":" + ','.join(outscope[y]))
-    print("\n\nSubdomains that did not resolve:\n")
+    print("\n\nDead domains (identified subdomains that did not resolve):\n")
     for z in dead_domains: print(z)
 
 def getch():
@@ -97,7 +99,9 @@ def getch():
 def printfile(filename):
     f=open(filename, "w+")
     f.write("Excplicitly In scope (resolves to IP provided in infile:\n")
-    for x in inscope: f.write(x + ":" + ','.join(str(s) for s in inscope[x]) + "\n")
+    for x in inscope: 
+        if inscope[x]:
+            f.write(x + ":" + ','.join(str(s) for s in inscope[x]) + "\n")
     f.write("\n\nTentatively in scope (IP not in provided infile but TLD determined to be in scope:\n")
     outscope1 = {}
     for y in outscope:
@@ -113,7 +117,7 @@ def printfile(filename):
         else: outscope1[y] = outscope[y]
     f.write("\n\nOut of scope:\n")
     for y in outscope1: f.write(y + ":" + ','.join(outscope[y]) + "\n")
-    f.write("\n\nSubdomains that did not resolve:\n")
+    f.write("\n\nDead domains (identified subdomains that did not resolve):\n")
     for z in dead_domains: f.write(z + "\n")
 
 def alreadyProcessed(nameorip):
@@ -205,7 +209,7 @@ def newFLD(fld):
         print()
         choice = getch().lower()
         if choice == 'y':
-            log("(-) %s ADDED TO SCOPE!" % fld)
+            log("(+) %s ADDED TO SCOPE!" % fld)
             flds_inscope.add(fld)
             SDenum(fld)
             Dq.add(fld)
