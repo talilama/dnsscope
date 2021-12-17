@@ -41,7 +41,7 @@ dead_domains = set()
 flds_processed = set()
 flds_inscope = set()
 processed = set()
-ignore_flds = ["googleusercontent.com","amazonaws.com"]
+ignore_flds = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com"]
 
 # Queues for keeping track of remaining items to test
 IPq = set()
@@ -127,7 +127,6 @@ def rDNS(ip):
     try:
         # get reversename i.e. 10.10.10.10.in-addr.arpa
         rev = reversename.from_address(ip)
-        print(rev)
         # get reverse DNS entry
         for name in r.query(rev,"PTR"):
             name = str(name).rstrip('.')
@@ -305,15 +304,23 @@ if __name__ == '__main__':
     
     # Main loop - go through remaining IPs and domains and run flow for each
     # and add additional discovered IPs or domains to queue
+    # Currently pops and processes one IP and one domain per iteration in this while loop
     while (Dq or IPq):
         if Dq: 
             domain = Dq.pop()
             log("")
             log("Processing domain: %s" %domain)
-            fDNS(domain)
-            fld = get_fld(domain, fix_protocol=True)
+            #fDNS(domain)
+            try:
+                fld = get_fld(domain, fix_protocol=True)
+            except:
+                log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
+                dead_domains.add("*" + domain)
+                continue
             if not alreadyProcessed(fld) and fld not in flds_processed:
                 newFLD(fld)
+            if fld in flds_inscope:
+                fDNS(domain)
             if fld in flds_inscope or args.tlsall:
                 if domain not in dead_domains:
                     for port in ports:
