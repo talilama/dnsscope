@@ -7,7 +7,7 @@ Takes a list of IPs and TLDs in scope and automates DNS enumeration. This includ
 * Dead Domains - Identified domain does not resolve
 
 ## Usage
-Specify an input file with the target scope using the -i/--infile flag (no CIDR support yet but I am planning on adding it soon. Just use prips for now to write out CIDRs to individual IPs). Additionally, pass a list or single top-level domain using -D/-d to run subdomain enumeration. By default, only DNS recon is done, but specifying the --tls flag will additionally grab the TLS certificate and check for domains in the Common Name and Subject Alternate Name fields. 
+Specify an input file with the target scope using the -i/--infile flag (supports IP addresses and CIDR ranges). Additionally, pass a list or single top-level domain using -D/-d to run subdomain enumeration. By default, only DNS recon is done, but specifying the --tls flag will additionally grab the TLS certificate and check for domains in the Common Name and Subject Alternate Name fields. 
 
 ### Basic Usage Examples:
 Common usage with single domain:
