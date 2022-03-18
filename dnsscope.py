@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import sys, tty, socket, ssl, OpenSSL, ipaddress, logging, argparse, termios
+from ipwhois import IPWhois
 from dns import resolver, reversename
 import sublister as sl
 from tld import get_tld, get_fld
@@ -48,7 +49,7 @@ def readips():
     for x in f: 
         x = x.strip()
         if isIP(x):
-            IPq.add(str(ip))
+            IPq.add(str(x))
         else:
             try:
                 cidr = ipaddress.IPv4Network(x)
@@ -188,6 +189,12 @@ def TLSenum(hostname,port=443):
         log("(-) Failed")
         return False
 
+def getwhois(domain):
+    # forward DNS
+    # for each IP, grab whois data
+    # return specific whois data
+    pass
+
 def newFLD(fld):
     # I don't think this check needs to be here, should be accounted for already but leaving just in case to prevent endless recursion:
     if fld in flds_processed:
@@ -201,6 +208,10 @@ def newFLD(fld):
         if x in fld:
             log("(-) TLD is in list of TLDs to ignore. %s not added to scope." % fld)
             return False
+    # run fDNS on fld, determine if IPs are in scope
+    # for each IP the fld resolves to, grab whois data
+    # whois = getwhois(fld)
+    # 
     prompt = "Add %s to scope? This will run additional subdomain enumeration (y/n) " %fld
     log(prompt)
     while True:
