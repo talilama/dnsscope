@@ -1,19 +1,9 @@
 #!/usr/bin/python3
 
-import sys
-import termios
-import tty
-import socket
-import configparser
-import argparse
-import socket
-import ssl
-import OpenSSL
-from IPy import IP
+import sys, tty, socket, ssl, OpenSSL, ipaddress, logging, argparse, termios
 from dns import resolver, reversename
 import sublister as sl
 from tld import get_tld, get_fld
-import logging
 
 # Setup Argument Parameters 
 progname = 'DNSscope'
@@ -55,10 +45,18 @@ r.lifetime = .3
 # inscope is dictionary with IP as key
 def readips():
     f=open(args.infile, "r")
-    for ip in f: 
-        ip = ip.strip()
-        if isIP(ip):
-            IPq.add(ip)
+    for x in f: 
+        x = x.strip()
+        if isIP(x):
+            IPq.add(str(ip))
+        else:
+            try:
+                cidr = ipaddress.IPv4Network(x)
+                for ip in cidr:
+                    IPq.add(str(ip))
+            except:
+                # skip because not a CIDR or IP
+                continue
 
 def printout():
     print("\n\nExplicitly In scope (resolves to IP provided in infile):\n")
@@ -252,7 +250,7 @@ def sublister(domain):
 
 def isIP(ip):
     try:
-        IP(ip)
+        ipaddress.ip_address(ip)
         return True
     except:
         return False
