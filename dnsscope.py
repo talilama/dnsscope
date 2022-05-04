@@ -245,10 +245,11 @@ def fDNS(name):
                 IPq.add(ip)
             if ip in inscope.keys(): inscope[ip].add(name)
             elif ip in outscope.keys(): outscope[ip].add(name)
-            else: outscope[ip] = [name]
+            else: outscope[ip] = {name}
         return True
-    except: 
+    except Exception as e: 
         log("(-) fDNS lookup failed on: " + name)
+        log("Exception: %s" % e)
         dead_domains.add(name)
         return False
 
