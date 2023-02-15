@@ -2,3 +2,4 @@ tld
 IPy
 configparser
 requests
+ipwhois
