@@ -40,8 +40,8 @@ IPq = set()
 Dq = set()
 
 r = resolver.Resolver()
-r.timeout = .5
-r.lifetime = .3
+r.timeout = .7
+r.lifetime = .7
 
 # Read IPs from file and add to inscope
 # inscope is dictionary with IP as key
