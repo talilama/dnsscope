@@ -13,10 +13,9 @@ parser.add_argument('-i', '--infile', help='File with IPs to check DNS records',
 parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_results.txt', default='DNSscope_results.txt')
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with TLDs to run subdomain enumeration')
-parser.add_argument('-n', '--noninteractive', help='Don\'t prompt for running additional subdomain enumeration on discovered TLDs/FLDs. This will only run subdomain enumeration on the initial domains provided with --domain or --domains. (Default behavior is to prompt for newly discovered TLDs/FLDs', action='store_true')
-parser.add_argument('-q', '--quiet', help='Quiet output. Default writes progress to stdout and output.log', action='store_true')
+parser.add_argument('-q', '--quiet', help='Only write to output.log and not stdout. Default writes progress to stdout and output.log', action='store_true')
 parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
-parser.add_argument('--tlsall', action="store_true", help='NON-PASSIVE! - Additionally run TLS enum for out of scope IPs and TLDs. CAUTION: This may spiral out of control quickly!') 
+parser.add_argument('--tlsall', action="store_true", help='NON-PASSIVE! - Additionally run TLS enum for out of scope IPs and TLDs. CAUTION: This may spiral out of control quickly! This option is non-passive and can cast a very large net, often resulting in many irrellevant results.') 
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
 
@@ -30,9 +29,11 @@ outscope = {}
 dead_domains = set()
 # Keep track of flds that have been asked/tested already
 flds_processed = set()
+flds_seen = set()
+flds_new = set()
 flds_inscope = set()
 processed = set()
-ignore_flds = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net"]
+ignore_flds = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net"]
 
 # Queues for keeping track of remaining items to test
 IPq = set()
@@ -201,9 +202,6 @@ def newFLD(fld):
         return False
     flds_processed.add(fld)
     log("Newly discovered top-level domain: %s" % fld)
-    if args.noninteractive:
-        log("(-) Non-interactive mode chosen. %s not added to scope." % fld)
-        return False
     for x in ignore_flds:
         if x in fld:
             log("(-) TLD is in list of TLDs to ignore. %s not added to scope." % fld)
@@ -236,6 +234,7 @@ def log(string):
 # Do a forward DNS lookup for a domain names and add to inscope/outscope/dead_domains
 def fDNS(name):
     log("Forward DNS lookup for %s" % name)
+    name=name.strip("\n")
     try:
         ips = r.query(name, "A")
         for ip in ips:
@@ -319,7 +318,7 @@ if __name__ == '__main__':
     # Main loop - go through remaining IPs and domains and run flow for each
     # and add additional discovered IPs or domains to queue
     # Currently pops and processes one IP and one domain per iteration in this while loop
-    while (Dq or IPq):
+    while (Dq or IPq or flds_new):
         if Dq: 
             domain = Dq.pop()
             log("")
@@ -329,10 +328,12 @@ if __name__ == '__main__':
                 fld = get_fld(domain, fix_protocol=True)
             except:
                 log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
-                dead_domains.add("*" + domain)
+                dead_domains.add("****" + domain)
                 continue
-            if not alreadyProcessed(fld) and fld not in flds_processed:
-                newFLD(fld)
+            if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
+                #newFLD(fld)
+                flds_new.add(fld)
+                flds_seen.add(fld)
             if fld in flds_inscope:
                 fDNS(domain)
             if fld in flds_inscope or args.tlsall:
@@ -351,6 +352,17 @@ if __name__ == '__main__':
                     TLSenum(ip,port)
             log("Finished Processing IP: %s" %ip)
             processed.add(ip)
+
+        if not Dq and not IPq and flds_new:
+            log("(+++) Finished processing IP and Domain queues\n\n\n") 
+            log("---------------------------------------------------------------------------\n")
+            if flds_new:
+                log("New FLDs discovered for additional processing!\n\n") 
+                print(flds_new)
+            for fld in flds_new:
+                if not alreadyProcessed(fld) and fld not in flds_processed:
+                    newFLD(fld)
+            flds_new = set()
     
     print("-------------------------------------")
     printout()
