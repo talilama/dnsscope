@@ -40,7 +40,7 @@ IPq = set()
 Dq = set()
 
 r = resolver.Resolver()
-r.timeout = .3
+r.timeout = .5
 r.lifetime = .3
 
 # Read IPs from file and add to inscope
@@ -132,14 +132,15 @@ def rDNS(ip):
         # get reversename i.e. 10.10.10.10.in-addr.arpa
         rev = reversename.from_address(ip)
         # get reverse DNS entry
-        for name in r.query(rev,"PTR"):
+        for name in r.resolve(rev,"PTR"):
             name = str(name).rstrip('.')
             if "in-addr.arpa" in name: continue
             log("(+) rDNS DISCOVERY! %s" %name)
             if not alreadyProcessed(name):
                 Dq.add(name)
-    except: 
+    except Exception as e: 
         log("rDNS lookup failed on: " + ip)
+        log("Exception: %s" % e)
 
 def get_certificate(host, port=443):
     try:
@@ -193,6 +194,39 @@ def TLSenum(hostname,port=443):
 def getwhois(domain):
     # forward DNS
     # for each IP, grab whois data
+    try:
+        ips = r.resolve(domain, "A")
+        for ip in ips:
+            ip = str(ip)
+            ipwhoisraw = IPWhois(ip)
+            whoisdata = ipwhoisraw.lookup_rdap(depth=1)
+            print("\n---------------------------------------------------------------------------")
+            print("%s WHOIS DATA:" % domain)
+            log("\t\tresolves to %s:" %  ip)
+            ###
+            ### TODO: add option to add asn_cidr to scope ###
+            ###
+            log("\t\tasn_cidr: %s" % whoisdata["asn_cidr"])
+            log("\t\tnetwork name: %s" % whoisdata["network"]["name"])
+            log("\t\tasn_description: %s" % whoisdata["asn_description"])
+            # Grab first 2 items of Whois Org names, emails, and addresses
+            i = 2
+            for obj in whoisdata["objects"]:
+                if i==0: break
+                log("\t\tOrg Name: %s" % whoisdata["objects"][obj]["contact"]["name"])
+                email = whoisdata["objects"][obj]["contact"]["email"]
+                if email:
+                    log("\t\tContact Email: %s" % email[0]["value"])
+                address = whoisdata["objects"][obj]["contact"]["address"]
+                if address:
+                    address_split=address[0]["value"].split("\n")
+                    log("\t\tOrg Contact Address: %s" % ", ".join(address_split))
+                i=i-1
+        return True
+
+    except Exception as e: 
+        log("(-) Error printing WHOIS data: ")
+        log("Exception: %s" % e)
     # return specific whois data
     pass
 
@@ -208,9 +242,9 @@ def newFLD(fld):
             return False
     # run fDNS on fld, determine if IPs are in scope
     # for each IP the fld resolves to, grab whois data
-    # whois = getwhois(fld)
+    getwhois(fld)
     # 
-    prompt = "Add %s to scope? This will run additional subdomain enumeration (y/n) " %fld
+    prompt = "Add %s domain to scope? This will run additional subdomain enumeration (y/n) " %fld
     log(prompt)
     while True:
         print()
@@ -236,7 +270,7 @@ def fDNS(name):
     log("Forward DNS lookup for %s" % name)
     name=name.strip("\n")
     try:
-        ips = r.query(name, "A")
+        ips = r.resolve(name, "A")
         for ip in ips:
             ip = str(ip)
             if not alreadyProcessed(ip) and isIP(ip):
@@ -360,7 +394,7 @@ if __name__ == '__main__':
                 log("New FLDs discovered for additional processing!\n\n") 
                 print(flds_new)
             for fld in flds_new:
-                if not alreadyProcessed(fld) and fld not in flds_processed:
+                if fld not in flds_processed:
                     newFLD(fld)
             flds_new = set()
     
