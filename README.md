@@ -18,9 +18,9 @@ Multiple domains in a file
 
     python3 dnsscope.py -i scope_ips -D domainsfile.txt --tls -o dnsrecon.txt
 
-Noninteractive and run TLSenum on additional ports - automatically selects "no" for additional subdomain enumeration on newly discovered TLDs. (Default behavior is to prompt to add the new TLD to scope and run additional subdomain enumeration)
+Run TLSenum on additional ports
 
-    python3 dnsscope.py -i scope_ips -d targetdomain.com --tls -p 8443 -n -q
+    python3 dnsscope.py -i scope_ips -d targetdomain.com --tls -p 8443
 	
 
 
