@@ -12,10 +12,10 @@ parser = argparse.ArgumentParser(description='Takes a list of IPs and look for d
 parser.add_argument('-i', '--infile', help='File with IPs to check DNS records', required=True)
 parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_results.txt', default='DNSscope_results.txt')
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
-parser.add_argument('-D', '--domains', help='File with TLDs to run subdomain enumeration')
+parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-q', '--quiet', help='Only write to output.log and not stdout. Default writes progress to stdout and output.log', action='store_true')
 parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
-parser.add_argument('--tlsall', action="store_true", help='NON-PASSIVE! - Additionally run TLS enum for out of scope IPs and TLDs. CAUTION: This may spiral out of control quickly! This option is non-passive and can cast a very large net, often resulting in many irrellevant results.') 
+parser.add_argument('--tlsall', action="store_true", help='NON-PASSIVE! - Additionally run TLS enum for out of scope IPs and FLDs. CAUTION: This may spiral out of control quickly! This option is non-passive and can cast a very large net, often resulting in many irrellevant results.') 
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
 
@@ -71,7 +71,7 @@ def printout():
         inscopeFLD = False
         for s in outscope[y]:
             fld = get_fld(s, fix_protocol=True)
-            # check if any of domains that resolve to IP are in scope tlds:
+            # check if any of domains that resolve to IP are in scope flds:
             if fld in flds_inscope:
                 inscopeFLD = True
                 break
@@ -108,7 +108,7 @@ def printfile(filename):
         inscopeFLD = False
         for s in outscope[y]:
             fld = get_fld(s, fix_protocol=True)
-            # check if any of domains that resolve to IP are in scope tlds:
+            # check if any of domains that resolve to IP are in scope flds:
             if fld in flds_inscope:
                 inscopeFLD = True
                 break
@@ -193,10 +193,13 @@ def TLSenum(hostname,port=443):
 
 def getwhois(domain):
     # forward DNS
-    # for each IP, grab whois data
+    # for first IP, grab whois data
     try:
         ips = r.resolve(domain, "A")
+        i = 1
         for ip in ips:
+            if not i: break
+            i = i-1
             ip = str(ip)
             ipwhoisraw = IPWhois(ip)
             whoisdata = ipwhoisraw.lookup_rdap(depth=1)
@@ -235,29 +238,32 @@ def newFLD(fld):
     if fld in flds_processed:
         return False
     flds_processed.add(fld)
-    log("Newly discovered top-level domain: %s" % fld)
+    log("\nNewly discovered top-level domain: %s" % fld)
     for x in ignore_flds:
         if x in fld:
             log("(-) TLD is in list of TLDs to ignore. %s not added to scope." % fld)
             return False
     # run fDNS on fld, determine if IPs are in scope
     # for each IP the fld resolves to, grab whois data
+    ### TODO ###
+    ### run and store Whois data for all new FLDs before the interactive stage to speed things up
+    ############
     getwhois(fld)
-    # 
-    prompt = "Add %s domain to scope? This will run additional subdomain enumeration (y/n) " %fld
+    ### TODO ###
+    ### Have list of keywords that if detected in TLD makes them automatically accepted as in-scope
+    ############
+    prompt = "\nAdd %s domain to scope? This will run additional subdomain enumeration (y/n) " %fld
     log(prompt)
     while True:
         print()
         choice = getch().lower()
         if choice == 'y':
             log("(+) %s ADDED TO SCOPE!" % fld)
-            flds_inscope.add(fld)
-            SDenum(fld)
-            Dq.add(fld)
-            break
+            log("---------------------------------------------------------------------------")
+            return fld
         elif choice == 'n': 
             log("(-) %s not added to scope." % fld)
-            break
+            log("---------------------------------------------------------------------------")
         else:
             print("Please choose y/n")
 
@@ -304,6 +310,9 @@ def isIP(ip):
 # Take a TLD and return subdomains identified with sublister
 def SDenum(domain):
     subdomains = set()
+    ### TODO ###
+    ### Change functionality to use amass instead of sublist3r (want subdomain functionality from amass enum -ip -d domain.com)
+    ############
     SLresults = sublister(domain)
     for sd in SLresults:
         # Deal with sublist3r multiple entries separated by <BR>:
@@ -324,7 +333,10 @@ if __name__ == '__main__':
     readips()
     for ip in IPq:
         inscope[ip.rstrip('\n')]=set()
-    
+    ### TODO ###
+    ### Add option for list of subdomains to include. Read from this list and add them to the domain queue
+    ###########
+
     # Injest TLDs and run subdomain enumeration on all of them
     initdomains = set()
     if args.domain:
@@ -365,7 +377,6 @@ if __name__ == '__main__':
                 dead_domains.add("****" + domain)
                 continue
             if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
-                #newFLD(fld)
                 flds_new.add(fld)
                 flds_seen.add(fld)
             if fld in flds_inscope:
@@ -393,11 +404,21 @@ if __name__ == '__main__':
             if flds_new:
                 log("New FLDs discovered for additional processing!\n\n") 
                 print(flds_new)
+            flds_to_process = set()
             for fld in flds_new:
                 if fld not in flds_processed:
-                    newFLD(fld)
+                    newfld = newFLD(fld)
+                    if newfld:
+                        flds_to_process.add(newfld)
+            # Reset flds_new queue for next round of enum
             flds_new = set()
-    
+            # Process new FLDs selected as in-scope
+            log("(+++) Resuming processing IP and Domain queues\n\n\n")
+            for fld in flds_to_process:
+                flds_inscope.add(fld)
+                SDenum(fld)
+                Dq.add(fld)
+            
     print("-------------------------------------")
     printout()
     if args.outfile: printfile(args.outfile)
