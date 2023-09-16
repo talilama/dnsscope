@@ -196,44 +196,46 @@ def getwhois(domain):
     # for first IP, grab whois data
     try:
         ips = r.resolve(domain, "A")
-        i = 1
         for ip in ips:
-            if not i: break
-            i = i-1
             ip = str(ip)
             ipwhoisraw = IPWhois(ip)
             whoisdata = ipwhoisraw.lookup_rdap(depth=1)
-            print("\n---------------------------------------------------------------------------")
-            print("%s WHOIS DATA:" % domain)
-            log("\t\tresolves to %s:" %  ip)
-            ###
-            ### TODO: add option to add asn_cidr to scope ###
-            ###
-            log("\t\tasn_cidr: %s" % whoisdata["asn_cidr"])
-            log("\t\tnetwork name: %s" % whoisdata["network"]["name"])
-            log("\t\tasn_description: %s" % whoisdata["asn_description"])
-            # Grab first 2 items of Whois Org names, emails, and addresses
-            i = 2
-            for obj in whoisdata["objects"]:
-                if i==0: break
-                log("\t\tOrg Name: %s" % whoisdata["objects"][obj]["contact"]["name"])
-                email = whoisdata["objects"][obj]["contact"]["email"]
-                if email:
-                    log("\t\tContact Email: %s" % email[0]["value"])
-                address = whoisdata["objects"][obj]["contact"]["address"]
-                if address:
-                    address_split=address[0]["value"].split("\n")
-                    log("\t\tOrg Contact Address: %s" % ", ".join(address_split))
-                i=i-1
-        return True
-
+            return whoisdata
     except Exception as e: 
-        log("(-) Error printing WHOIS data: ")
-        log("Exception: %s" % e)
-    # return specific whois data
-    pass
+        #log("(-) Error printing WHOIS data: ")
+        #log("Exception: %s" % e)
+        return False
 
-def newFLD(fld):
+def printwhois(domain, whoisarray):
+    ### TODO ### 
+    ### add option to add asn_cidr to scope and process IPs ###
+    ############
+    whoisdata = whoisarray[domain]
+    log("\n---------------------------------------------------------------------------")
+    log("%s WHOIS DATA:" % domain)
+    if not whoisdata: 
+        log("\t\tFailed to get whoisdata for %s" % domain)
+        return False
+    log("\t\tresolves to %s:" %  ip)
+    log("\t\tasn_cidr: %s" % whoisdata["asn_cidr"])
+    log("\t\tnetwork name: %s" % whoisdata["network"]["name"])
+    log("\t\tasn_description: %s" % whoisdata["asn_description"])
+    # Grab first 2 items of Whois Org names, emails, and addresses
+    i = 2
+    for obj in whoisdata["objects"]:
+        if i==0: break
+        log("\t\tOrg Name: %s" % whoisdata["objects"][obj]["contact"]["name"])
+        email = whoisdata["objects"][obj]["contact"]["email"]
+        if email:
+            log("\t\tContact Email: %s" % email[0]["value"])
+        address = whoisdata["objects"][obj]["contact"]["address"]
+        if address:
+            address_split=address[0]["value"].split("\n")
+            log("\t\tOrg Contact Address: %s" % ", ".join(address_split))
+        i=i-1
+    return True
+
+def newFLD(fld, whoisdata):
     # I don't think this check needs to be here, should be accounted for already but leaving just in case to prevent endless recursion:
     if fld in flds_processed:
         return False
@@ -243,12 +245,7 @@ def newFLD(fld):
         if x in fld:
             log("(-) TLD is in list of TLDs to ignore. %s not added to scope." % fld)
             return False
-    # run fDNS on fld, determine if IPs are in scope
-    # for each IP the fld resolves to, grab whois data
-    ### TODO ###
-    ### run and store Whois data for all new FLDs before the interactive stage to speed things up
-    ############
-    getwhois(fld)
+    printwhois(fld, whoisdata)
     ### TODO ###
     ### Have list of keywords that if detected in TLD makes them automatically accepted as in-scope
     ############
@@ -375,7 +372,7 @@ if __name__ == '__main__':
                 fld = get_fld(domain, fix_protocol=True)
             except:
                 log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
-                dead_domains.add("****" + domain)
+                dead_domains.add("{INTERNAL DOMAIN???}  " + domain)
                 continue
             if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
                 flds_new.add(fld)
@@ -403,14 +400,17 @@ if __name__ == '__main__':
             log("(+++) Finished processing IP and Domain queues\n\n\n") 
             log("---------------------------------------------------------------------------\n")
             if flds_new:
-                log("New FLDs discovered for additional processing!\n\n") 
+                log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
                 print(flds_new)
             flds_to_process = set()
+            whoisdata = {}
+            log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a minute for large environments!\n")
             for fld in flds_new:
-                if fld not in flds_processed:
-                    newfld = newFLD(fld)
-                    if newfld:
-                        flds_to_process.add(newfld)
+                whoisdata[fld] = getwhois(fld)
+            for fld in flds_new:
+                newfld = newFLD(fld, whoisdata)
+                if newfld:
+                    flds_to_process.add(newfld)
             # Reset flds_new queue for next round of enum
             flds_new = set()
             # Process new FLDs selected as in-scope
