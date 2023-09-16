@@ -264,6 +264,7 @@ def newFLD(fld):
         elif choice == 'n': 
             log("(-) %s not added to scope." % fld)
             log("---------------------------------------------------------------------------")
+            return False
         else:
             print("Please choose y/n")
 
