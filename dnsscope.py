@@ -216,24 +216,30 @@ def printwhois(domain, whoisarray):
     if not whoisdata: 
         log("\t\tFailed to get whoisdata for %s" % domain)
         return False
-    log("\t\tresolves to %s:" %  ip)
-    log("\t\tasn_cidr: %s" % whoisdata["asn_cidr"])
-    log("\t\tnetwork name: %s" % whoisdata["network"]["name"])
-    log("\t\tasn_description: %s" % whoisdata["asn_description"])
-    # Grab first 2 items of Whois Org names, emails, and addresses
-    i = 2
-    for obj in whoisdata["objects"]:
-        if i==0: break
-        log("\t\tOrg Name: %s" % whoisdata["objects"][obj]["contact"]["name"])
-        email = whoisdata["objects"][obj]["contact"]["email"]
-        if email:
-            log("\t\tContact Email: %s" % email[0]["value"])
-        address = whoisdata["objects"][obj]["contact"]["address"]
-        if address:
-            address_split=address[0]["value"].split("\n")
-            log("\t\tOrg Contact Address: %s" % ", ".join(address_split))
-        i=i-1
-    return True
+    
+    try:
+        log("\t\tresolves to %s:" %  ip)
+        log("\t\tasn_cidr: %s" % whoisdata["asn_cidr"])
+        log("\t\tnetwork name: %s" % whoisdata["network"]["name"])
+        log("\t\tasn_description: %s" % whoisdata["asn_description"])
+        # Grab first 2 items of Whois Org names, emails, and addresses
+        i = 2
+        for obj in whoisdata["objects"]:
+            if i==0: break
+            log("\t\tOrg Name: %s" % whoisdata["objects"][obj]["contact"]["name"])
+            email = whoisdata["objects"][obj]["contact"]["email"]
+            if email:
+                log("\t\tContact Email: %s" % email[0]["value"])
+            address = whoisdata["objects"][obj]["contact"]["address"]
+            if address:
+                address_split=address[0]["value"].split("\n")
+                log("\t\tOrg Contact Address: %s" % ", ".join(address_split))
+            i=i-1
+        return True
+    except Exception as e: 
+        log("(-) Error printing whois data for %d" % domain)
+        log("Exception: %s" % e)
+        return False
 
 def newFLD(fld, whoisdata):
     # I don't think this check needs to be here, should be accounted for already but leaving just in case to prevent endless recursion:
@@ -246,9 +252,6 @@ def newFLD(fld, whoisdata):
             log("(-) TLD is in list of TLDs to ignore. %s not added to scope." % fld)
             return False
     printwhois(fld, whoisdata)
-    ### TODO ###
-    ### Have list of keywords that if detected in TLD makes them automatically accepted as in-scope
-    ############
     prompt = "\nAdd %s domain to scope? This will run additional subdomain enumeration (y/n) " %fld
     log(prompt)
     while True:
@@ -308,9 +311,6 @@ def isIP(ip):
 # Take a TLD and return subdomains identified with sublister
 def SDenum(domain):
     subdomains = set()
-    ### TODO ###
-    ### Change functionality to use amass instead of sublist3r (want subdomain functionality from amass enum -ip -d domain.com)
-    ############
     SLresults = sublister(domain)
     for sd in SLresults:
         # Deal with sublist3r multiple entries separated by <BR>:
@@ -333,6 +333,7 @@ if __name__ == '__main__':
         inscope[ip.rstrip('\n')]=set()
     ### TODO ###
     ### Add option for list of subdomains to include. Read from this list and add them to the domain queue
+    ### Alternatively have subdomain prefix that checks against all in-scope FLDs
     ###########
 
     # Injest TLDs and run subdomain enumeration on all of them
