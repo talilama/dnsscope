@@ -29,9 +29,15 @@ outscope = {}
 dead_domains = set()
 # Keep track of flds that have been asked/tested already
 flds_processed = set()
+# Keep track of domains that did not have their FLD in scope - if it is determined to be in scope, then we revisit these and process them
+revisit_queue = set()
+# Keep track of all FLDs we have seen so we don't double process
 flds_seen = set()
+# Keep track of new FLDs so they can be determined to be in or out of scope
 flds_new = set()
+# Keep track of FLDs that have been deemed in-scope
 flds_inscope = set()
+# Keep track of domains and IPs that have been processed
 processed = set()
 ignore_flds = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net"]
 
@@ -65,7 +71,7 @@ def printout():
     for x in inscope: 
         if inscope[x]:
             print(x + ":" + ','.join(str(s) for s in inscope[x]))
-    print("\n\nTentatively in scope (IP not in provided infile but TLD determined to be in scope):\n")
+    print("\n\nTentatively in scope (IP not in provided infile but FLD determined to be in scope):\n")
     outscope1 = {}
     for y in outscope:
         inscopeFLD = False
@@ -102,7 +108,7 @@ def printfile(filename):
     for x in inscope: 
         if inscope[x]:
             f.write(x + ":" + ','.join(str(s) for s in inscope[x]) + "\n")
-    f.write("\n\nTentatively in scope (IP not in provided infile but TLD determined to be in scope:\n")
+    f.write("\n\nTentatively in scope (IP not in provided infile but FLD determined to be in scope:\n")
     outscope1 = {}
     for y in outscope:
         inscopeFLD = False
@@ -140,7 +146,7 @@ def rDNS(ip):
                 Dq.add(name)
     except Exception as e: 
         log("rDNS lookup failed on: " + ip)
-        log("Exception: %s" % e)
+        log("\tException: %s" % e)
 
 def get_certificate(host, port=443):
     try:
@@ -202,8 +208,6 @@ def getwhois(domain):
             whoisdata = ipwhoisraw.lookup_rdap(depth=1)
             return whoisdata
     except Exception as e: 
-        #log("(-) Error printing WHOIS data: ")
-        #log("Exception: %s" % e)
         return False
 
 def printwhois(domain, whoisarray):
@@ -238,7 +242,7 @@ def printwhois(domain, whoisarray):
         return True
     except Exception as e: 
         log("(-) Error printing whois data for %d" % domain)
-        log("Exception: %s" % e)
+        log("\tException: %s" % e)
         return False
 
 def newFLD(fld, whoisdata):
@@ -249,7 +253,7 @@ def newFLD(fld, whoisdata):
     log("\nNewly discovered top-level domain: %s" % fld)
     for x in ignore_flds:
         if x in fld:
-            log("(-) TLD is in list of TLDs to ignore. %s not added to scope." % fld)
+            log("(-) FLD is in list of FLDs to ignore. %s not added to scope.\n" % fld)
             return False
     printwhois(fld, whoisdata)
     prompt = "\nAdd %s domain to scope? This will run additional subdomain enumeration (y/n) " %fld
@@ -258,11 +262,11 @@ def newFLD(fld, whoisdata):
         print()
         choice = getch().lower()
         if choice == 'y':
-            log("(+) %s ADDED TO SCOPE!" % fld)
+            log("(+) %s ADDED TO SCOPE!\n" % fld)
             log("---------------------------------------------------------------------------")
             return fld
         elif choice == 'n': 
-            log("(-) %s not added to scope." % fld)
+            log("(-) %s not added to scope.\n" % fld)
             log("---------------------------------------------------------------------------")
             return False
         else:
@@ -289,7 +293,7 @@ def fDNS(name):
         return True
     except Exception as e: 
         log("(-) fDNS lookup failed on: " + name)
-        log("Exception: %s" % e)
+        log("\tException: %s" % e)
         dead_domains.add(name)
         return False
 
@@ -308,7 +312,7 @@ def isIP(ip):
         return False
 
 
-# Take a TLD and return subdomains identified with sublister
+# Take a FLD and return subdomains identified with sublister
 def SDenum(domain):
     subdomains = set()
     SLresults = sublister(domain)
@@ -336,7 +340,7 @@ if __name__ == '__main__':
     ### Alternatively have subdomain prefix that checks against all in-scope FLDs
     ###########
 
-    # Injest TLDs and run subdomain enumeration on all of them
+    # Injest FLDs and run subdomain enumeration on all of them
     initdomains = set()
     if args.domain:
         domain = args.domain.lower()
@@ -366,49 +370,55 @@ if __name__ == '__main__':
     while (Dq or IPq or flds_new):
         if Dq: 
             domain = Dq.pop()
-            log("")
-            log("Processing domain: %s" %domain)
-            #fDNS(domain)
-            try:
-                fld = get_fld(domain, fix_protocol=True)
-            except:
-                log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
-                dead_domains.add("{INTERNAL DOMAIN???}  " + domain)
-                continue
-            if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
-                flds_new.add(fld)
-                flds_seen.add(fld)
-            if fld in flds_inscope:
-                fDNS(domain)
-            if fld in flds_inscope or args.tlsall:
-                if domain not in dead_domains:
-                    for port in ports:
-                        TLSenum(domain,port)
-            log("Finished processing domain: %s" %domain)
-            processed.add(domain)
+            if not alreadyProcessed(domain):
+                log("")
+                log("Processing domain: %s" %domain)
+                try:
+                    fld = get_fld(domain, fix_protocol=True)
+                except:
+                    log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
+                    dead_domains.add("{INTERNAL DOMAIN???}  " + domain)
+                    continue
+                if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
+                    flds_new.add(fld)
+                    flds_seen.add(fld)
+                if fld in flds_inscope:
+                    fDNS(domain)
+                else:
+                    log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
+                    revisit_queue.add(domain)
+                if fld in flds_inscope or args.tlsall:
+                    if domain not in dead_domains:
+                        for port in ports:
+                            TLSenum(domain,port)
+                log("Finished processing domain: %s" %domain)
+                if domain not in revisit_queue:
+                    processed.add(domain)
         if IPq: 
             ip = IPq.pop()
-            log("")
-            log("Processing IP: %s" %ip)
-            rDNS(ip)
-            if ip in inscope or args.tlsall:
-                for port in ports:
-                    TLSenum(ip,port)
-            log("Finished Processing IP: %s" %ip)
-            processed.add(ip)
+            if not alreadyProcessed(ip):
+                log("")
+                log("Processing IP: %s" %ip)
+                rDNS(ip)
+                if ip in inscope or args.tlsall:
+                    for port in ports:
+                        TLSenum(ip,port)
+                log("Finished Processing IP: %s" %ip)
+                processed.add(ip)
 
         if not Dq and not IPq and flds_new:
             log("(+++) Finished processing IP and Domain queues\n\n\n") 
             log("---------------------------------------------------------------------------\n")
             if flds_new:
                 log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
-                print(flds_new)
+                log(flds_new)
             flds_to_process = set()
             whoisdata = {}
-            log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a minute for large environments!\n")
+            log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
             for fld in flds_new:
                 whoisdata[fld] = getwhois(fld)
             for fld in flds_new:
+                # if newfld is populated, the fld has been added to scope
                 newfld = newFLD(fld, whoisdata)
                 if newfld:
                     flds_to_process.add(newfld)
@@ -418,6 +428,11 @@ if __name__ == '__main__':
             log("(+++) Resuming processing IP and Domain queues\n\n\n")
             for fld in flds_to_process:
                 flds_inscope.add(fld)
+                # If we added the FLD to scope, then we need to revisit
+                for domain in revisit_queue:
+                    if fld in domain: 
+                        Dq.add(domain)
+                        log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
                 SDenum(fld)
                 Dq.add(fld)
             
