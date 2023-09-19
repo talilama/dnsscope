@@ -15,7 +15,6 @@ parser.add_argument('-d', '--domain', help='run subdomain enumeration on a singl
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-q', '--quiet', help='Only write to output.log and not stdout. Default writes progress to stdout and output.log', action='store_true')
 parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
-parser.add_argument('--tlsall', action="store_true", help='NON-PASSIVE! - Additionally run TLS enum for out of scope IPs and FLDs. CAUTION: This may spiral out of control quickly! This option is non-passive and can cast a very large net, often resulting in many irrellevant results.') 
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
 
@@ -39,7 +38,7 @@ flds_new = set()
 flds_inscope = set()
 # Keep track of domains and IPs that have been processed
 processed = set()
-ignore_flds = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net"]
+flds_ignore= ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net"]
 
 # Queues for keeping track of remaining items to test
 IPq = set()
@@ -141,8 +140,8 @@ def rDNS(ip):
         for name in r.resolve(rev,"PTR"):
             name = str(name).rstrip('.')
             if "in-addr.arpa" in name: continue
-            log("(+) rDNS DISCOVERY! %s" %name)
             if not alreadyProcessed(name):
+                log("(+) rDNS DISCOVERY! ADDING TO QUEUE: %s" %name)
                 Dq.add(name)
     except Exception as e: 
         log("rDNS lookup failed on: " + ip)
@@ -186,11 +185,12 @@ def TLSenum(hostname,port=443):
         log("(+) Success")
         for x in certdata:
             if not alreadyProcessed(x):
-                log("(+) TLSENUM DISCOVERY! ADDING TO QUEUE: %s" %x)
                 # Add this check to add to correct queue, since TLSenum can be called on IP addresses or domains
                 if isIP(x) and x not in IPq and x != hostname: 
+                    log("(+) TLSENUM DISCOVERY! ADDING TO IP QUEUE: %s" %x)
                     IPq.add(x)
                 elif x not in Dq and x != hostname:
+                    log("(+) TLSENUM DISCOVERY! ADDING TO DOMAIN QUEUE: %s" %x)
                     Dq.add(x)
         return certdata
     except: 
@@ -251,7 +251,7 @@ def newFLD(fld, whoisdata):
         return False
     flds_processed.add(fld)
     log("\nNewly discovered top-level domain: %s" % fld)
-    for x in ignore_flds:
+    for x in flds_ignore:
         if x in fld:
             log("(-) FLD is in list of FLDs to ignore. %s not added to scope.\n" % fld)
             return False
@@ -359,7 +359,7 @@ if __name__ == '__main__':
     for domain in initdomains:
         subdomains = SDenum(domain)
     ports = {}
-    if args.tls or args.tlsall:
+    if args.tls:
        ports={443}
        if args.ports: 
            for x in args.ports: ports.add(int(x))
@@ -379,28 +379,33 @@ if __name__ == '__main__':
                     log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
                     dead_domains.add("{INTERNAL DOMAIN???}  " + domain)
                     continue
-                if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
-                    flds_new.add(fld)
-                    flds_seen.add(fld)
-                if fld in flds_inscope:
-                    fDNS(domain)
-                else:
-                    log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
-                    revisit_queue.add(domain)
-                if fld in flds_inscope or args.tlsall:
-                    if domain not in dead_domains:
-                        for port in ports:
-                            TLSenum(domain,port)
+                ignore = False
+                for x in flds_ignore:
+                    if x in fld:
+                        log("(-) FLD is in list of FLDs to ignore. Ignoring %s\n" % fld)
+                        ignore = True
+                if not ignore:
+                    if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
+                        flds_new.add(fld)
+                        flds_seen.add(fld)
+                    if fld in flds_inscope:
+                        fDNS(domain)
+                        if domain not in dead_domains:
+                            for port in ports:
+                                TLSenum(domain,port)
+                        processed.add(domain)
+                    else:
+                        log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
+                        if domain not in revisit_queue:
+                            revisit_queue.add(domain)
                 log("Finished processing domain: %s" %domain)
-                if domain not in revisit_queue:
-                    processed.add(domain)
         if IPq: 
             ip = IPq.pop()
             if not alreadyProcessed(ip):
                 log("")
                 log("Processing IP: %s" %ip)
                 rDNS(ip)
-                if ip in inscope or args.tlsall:
+                if ip in inscope:
                     for port in ports:
                         TLSenum(ip,port)
                 log("Finished Processing IP: %s" %ip)
@@ -430,9 +435,9 @@ if __name__ == '__main__':
                 flds_inscope.add(fld)
                 # If we added the FLD to scope, then we need to revisit
                 for domain in revisit_queue:
-                    if fld in domain: 
-                        Dq.add(domain)
+                    if fld in domain and domain != fld: 
                         log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
+                        Dq.add(domain)
                 SDenum(fld)
                 Dq.add(fld)
             
