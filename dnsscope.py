@@ -384,7 +384,7 @@ if __name__ == '__main__':
                 ignore = False
                 for x in flds_ignore:
                     if x in fld:
-                        log("(-) FLD is in list of FLDs to ignore. Ignoring %s\n" % fld)
+                        log("(-) FLD is in list of FLDs to ignore. Ignoring %s" % fld)
                         ignore = True
                 if not ignore:
                     if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
