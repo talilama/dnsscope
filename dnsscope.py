@@ -241,7 +241,7 @@ def printwhois(domain, whoisarray):
             i=i-1
         return True
     except Exception as e: 
-        log("(-) Error printing whois data for %d" % domain)
+        log("(-) Error printing whois data for %s" % domain)
         log("\tException: %s" % e)
         return False
 
