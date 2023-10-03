@@ -307,6 +307,8 @@ def sublister(domain):
 def isIP(ip):
     try:
         ipaddress.ip_address(ip)
+        if ipaddress.ip_address(ip).is_private:
+            log("(+) Private/Internal IP Address Identified: %s" % str(ip))
         return True
     except:
         return False
