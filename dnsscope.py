@@ -9,11 +9,11 @@ from tld import get_tld, get_fld
 # Setup Argument Parameters 
 progname = 'DNSscope'
 parser = argparse.ArgumentParser(description='Takes a list of IPs and look for domains/subdomains that are associated with them or vice versa')
-parser.add_argument('-i', '--infile', help='File with IPs to check DNS records', required=True)
+parser.add_argument('-i', '--infile', help='File with explicitly in-scope IPs to check DNS records', required=True)
 parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_results.txt', default='DNSscope_results.txt')
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
-parser.add_argument('-q', '--quiet', help='Only write to output.log and not stdout. Default writes progress to stdout and output.log', action='store_true')
+parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
 parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
@@ -273,7 +273,8 @@ def newFLD(fld, whoisdata):
             print("Please choose y/n")
 
 def log(string):
-    if not args.quiet: print(string)
+    #if not args.quiet: print(string)
+    print(string)
     logging.info(string)
 
 # Do a forward DNS lookup for a domain names and add to inscope/outscope/dead_domains
@@ -365,7 +366,11 @@ if __name__ == '__main__':
        ports={443}
        if args.ports: 
            for x in args.ports: ports.add(int(x))
-    
+    if args.subdomains:
+        f=open(args.subdomains, "r")
+        for sd in f:
+            subdomain = sd.strip().lower()
+            Dq.add(subdomain)
     # Main loop - go through remaining IPs and domains and run flow for each
     # and add additional discovered IPs or domains to queue
     # Currently pops and processes one IP and one domain per iteration in this while loop
