@@ -14,6 +14,7 @@ parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_re
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
+parser.add_argument('-b', '--bruteforce', help='Brute force subdomains. This option will take a while to run subdomain enumeration for each FLD')
 parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
@@ -38,7 +39,7 @@ flds_new = set()
 flds_inscope = set()
 # Keep track of domains and IPs that have been processed
 processed = set()
-flds_ignore= ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net","akamaized.net"]
+flds_ignore= ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net","akamaized.net","cloudflaressl.com", "wpengine.com"]
 
 # Queues for keeping track of remaining items to test
 IPq = set()
@@ -302,7 +303,10 @@ def fDNS(name):
 # run sublist3r on domain and do forward DNS lookup for each
 def sublister(domain):
     log("Searching for subdomains of %s. This may take a few seconds..." % domain)
-    subdomains = sl.sublister_main(domain, 30, None, None, silent=True, verbose=False, enable_bruteforce=False, engines=None)
+    bf = False
+    if args.bruteforce:
+        bf = True
+    subdomains = sl.sublister_main(domain, 30, None, None, silent=True, verbose=False, enable_bruteforce=bf, engines=None)
     return subdomains
 
 def isIP(ip):
