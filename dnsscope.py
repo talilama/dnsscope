@@ -14,7 +14,6 @@ parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_re
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
-parser.add_argument('-b', '--bruteforce', help='Brute force subdomains. This option will take a while to run subdomain enumeration for each FLD')
 parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
@@ -304,8 +303,6 @@ def fDNS(name):
 def sublister(domain):
     log("Searching for subdomains of %s. This may take a few seconds..." % domain)
     bf = False
-    if args.bruteforce:
-        bf = True
     subdomains = sl.sublister_main(domain, 30, None, None, silent=True, verbose=False, enable_bruteforce=bf, engines=None)
     return subdomains
 
