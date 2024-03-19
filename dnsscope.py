@@ -103,7 +103,7 @@ def getch():
 
 def printfile(filename):
     f=open(filename, "w+")
-    f.write("Explicitly In scope (resolves to IP provided in infile:\n")
+    f.write("Explicitly In scope (resolves to IP provided in infile):\n")
     for x in inscope: 
         if inscope[x]:
             f.write(x + ":" + ','.join(str(s) for s in inscope[x]) + "\n")
