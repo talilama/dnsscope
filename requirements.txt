@@ -3,3 +3,5 @@ IPy
 configparser
 requests
 ipwhois
+pyOpenSSL
+bs4

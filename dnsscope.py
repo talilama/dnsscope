@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import sys, tty, socket, ssl, OpenSSL, ipaddress, logging, argparse, termios
+import sqlite3, json, sys, tty, socket, ssl, ipaddress, logging, argparse, termios, OpenSSL
 from ipwhois import IPWhois
 from dns import resolver, reversename
 import sublister as sl
@@ -10,7 +10,6 @@ from tld import get_tld, get_fld
 progname = 'DNSscope'
 parser = argparse.ArgumentParser(description='Takes a list of IPs and look for domains/subdomains that are associated with them or vice versa')
 parser.add_argument('-i', '--infile', help='File with explicitly in-scope IPs to check DNS records', required=True)
-parser.add_argument('-o', '--outfile', help='Output file. Default is DNSscope_results.txt', default='DNSscope_results.txt')
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
@@ -18,35 +17,27 @@ parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each 
 parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
 args = parser.parse_args()
 
-logging.basicConfig(level=logging.INFO, filename="output.log", filemode="w", format="%(asctime)-15s %(levelname)-8s %(message)s")
+logging.basicConfig(level=logging.INFO, filename="output.log", filemode="a", format="%(asctime)-15s %(levelname)-8s %(message)s")
 
-# Keep track of in scope IP addresses from initial infile 
-inscope = {}
-# Keep track of all out of scope IP addresses and the domains that resolve to them
-outscope = {}
-# Keep track of all identified domains that don't resolve to IPs
-dead_domains = set()
-# Keep track of flds that have been asked/tested already
-flds_processed = set()
-# Keep track of domains that did not have their FLD in scope - if it is determined to be in scope, then we revisit these and process them
-revisit_queue = set()
-# Keep track of all FLDs we have seen so we don't double process
-flds_seen = set()
-# Keep track of new FLDs so they can be determined to be in or out of scope
-flds_new = set()
-# Keep track of FLDs that have been deemed in-scope
-flds_inscope = set()
-# Keep track of domains and IPs that have been processed
-processed = set()
-flds_ignore= ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net","akamaized.net","cloudflaressl.com", "wpengine.com"]
+# Create database and tables:
+con = sqlite3.connect("DNSscope.db")
+db = con.cursor()
+createtable = "CREATE TABLE IF NOT EXISTS "
+db.execute(createtable + "dead_domains(domain,fld_inscope,UNIQUE(domain))")
+db.execute(createtable + "flds(fld,fld_inscope,whoisdata,UNIQUE(fld))")
+db.execute(createtable + "data(ip,domains,ip_inscope,UNIQUE(ip))")
+db.execute(createtable + "processed(domainorip,type,fld_inscope,fld,UNIQUE(domainorip))")
+
+flds_ignore = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net","akamaized.net","cloudflaressl.com", "wpengine.com"]
 
 # Queues for keeping track of remaining items to test
 IPq = set()
 Dq = set()
 
 r = resolver.Resolver()
-r.timeout = .7
-r.lifetime = .7
+r.timeout = .8
+r.lifetime = .8
+r.nameservers = ['1.1.1.1','8.8.8.8']
 
 # Read IPs from file and add to inscope
 # inscope is dictionary with IP as key
@@ -62,71 +53,13 @@ def readips():
                 for ip in cidr:
                     IPq.add(str(ip))
             except:
-                # skip because not a CIDR or IP
                 continue
 
-def printout():
-    print("\n\nExplicitly In scope (resolves to IP provided in infile):\n")
-    for x in inscope: 
-        if inscope[x]:
-            print(x + ":" + ','.join(str(s) for s in inscope[x]))
-    print("\n\nTentatively in scope (IP not in provided infile but FLD determined to be in scope):\n")
-    outscope1 = {}
-    for y in outscope:
-        inscopeFLD = False
-        for s in outscope[y]:
-            fld = get_fld(s, fix_protocol=True)
-            # check if any of domains that resolve to IP are in scope flds:
-            if fld in flds_inscope:
-                inscopeFLD = True
-                break
-        if inscopeFLD:
-            print(y + ":" + ','.join(outscope[y]))
-        else: outscope1[y] = outscope[y]
-    print("\n\nOut of scope:\n")
-    for y in outscope1: print(y + ":" + ','.join(outscope[y]))
-    print("\n\nDead domains (identified subdomains that did not resolve):\n")
-    for z in dead_domains: print(z)
-
-def getch():
-    def _getch():
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-    return _getch()
-
-
-def printfile(filename):
-    f=open(filename, "w+")
-    f.write("Explicitly In scope (resolves to IP provided in infile):\n")
-    for x in inscope: 
-        if inscope[x]:
-            f.write(x + ":" + ','.join(str(s) for s in inscope[x]) + "\n")
-    f.write("\n\nTentatively in scope (IP not in provided infile but FLD determined to be in scope:\n")
-    outscope1 = {}
-    for y in outscope:
-        inscopeFLD = False
-        for s in outscope[y]:
-            fld = get_fld(s, fix_protocol=True)
-            # check if any of domains that resolve to IP are in scope flds:
-            if fld in flds_inscope:
-                inscopeFLD = True
-                break
-        if inscopeFLD:
-            f.write(y + ":" + ','.join(outscope[y]) + "\n")
-        else: outscope1[y] = outscope[y]
-    f.write("\n\nOut of scope:\n")
-    for y in outscope1: f.write(y + ":" + ','.join(outscope[y]) + "\n")
-    f.write("\n\nDead domains (identified subdomains that did not resolve):\n")
-    for z in dead_domains: f.write(z + "\n")
 
 def alreadyProcessed(nameorip):
-    if nameorip in processed:
+    db.execute("SELECT domainorip FROM processed WHERE domainorip=?",(nameorip,))
+    result = db.fetchone()
+    if result:
         return True
     else:
         return False
@@ -193,92 +126,28 @@ def TLSenum(hostname,port=443):
                     log("(+) TLSENUM DISCOVERY! ADDING TO DOMAIN QUEUE: %s" %x)
                     Dq.add(x)
         return certdata
-    except: 
-        log("(-) Failed")
+    except Exception as e: 
+        log("(-) Failed: %s" % e)
         return False
 
 def getwhois(domain):
-    # forward DNS
-    # for first IP, grab whois data
+    # forward DNS - for first IP, grab whois data
     try:
-        ips = r.resolve(domain, "A")
+        ips = r.resolve(domain, "A", lifetime=1.5)
         for ip in ips:
             ip = str(ip)
-            ipwhoisraw = IPWhois(ip)
-            whoisdata = ipwhoisraw.lookup_rdap(depth=1)
+            object = IPWhois(ip)
+            whoisdata = object.lookup_rdap(depth=3, asn_methods=['whois'])
             return whoisdata
     except Exception as e: 
-        return False
-
-def printwhois(domain, whoisarray):
-    ### TODO ### 
-    ### add option to add asn_cidr to scope and process IPs ###
-    ############
-    whoisdata = whoisarray[domain]
-    log("\n---------------------------------------------------------------------------")
-    log("%s WHOIS DATA:" % domain)
-    if not whoisdata: 
-        log("\t\tFailed to get whoisdata for %s" % domain)
-        return False
-    
-    try:
-        log("\t\tresolves to %s:" %  ip)
-        log("\t\tasn_cidr: %s" % whoisdata["asn_cidr"])
-        log("\t\tnetwork name: %s" % whoisdata["network"]["name"])
-        log("\t\tasn_description: %s" % whoisdata["asn_description"])
-        # Grab first 2 items of Whois Org names, emails, and addresses
-        i = 2
-        for obj in whoisdata["objects"]:
-            if i==0: break
-            log("\t\tOrg Name: %s" % whoisdata["objects"][obj]["contact"]["name"])
-            email = whoisdata["objects"][obj]["contact"]["email"]
-            if email:
-                log("\t\tContact Email: %s" % email[0]["value"])
-            address = whoisdata["objects"][obj]["contact"]["address"]
-            if address:
-                address_split=address[0]["value"].split("\n")
-                log("\t\tOrg Contact Address: %s" % ", ".join(address_split))
-            i=i-1
-        return True
-    except Exception as e: 
-        log("(-) Error printing whois data for %s" % domain)
-        log("\tException: %s" % e)
-        return False
-
-def newFLD(fld, whoisdata):
-    # I don't think this check needs to be here, should be accounted for already but leaving just in case to prevent endless recursion:
-    if fld in flds_processed:
-        return False
-    flds_processed.add(fld)
-    log("\nNewly discovered top-level domain: %s" % fld)
-    for x in flds_ignore:
-        if x in fld:
-            log("(-) FLD is in list of FLDs to ignore. %s not added to scope.\n" % fld)
-            return False
-    printwhois(fld, whoisdata)
-    prompt = "\nAdd %s domain to scope? This will run additional subdomain enumeration (y/n) " %fld
-    log(prompt)
-    while True:
-        print()
-        choice = getch().lower()
-        if choice == 'y':
-            log("(+) %s ADDED TO SCOPE!\n" % fld)
-            log("---------------------------------------------------------------------------")
-            return fld
-        elif choice == 'n': 
-            log("(-) %s not added to scope.\n" % fld)
-            log("---------------------------------------------------------------------------")
-            return False
-        else:
-            print("Please choose y/n")
+        return "Error getting whoisdata. \nDetailed Error:\n%s" % e
 
 def log(string):
-    #if not args.quiet: print(string)
     print(string)
     logging.info(string)
 
-# Do a forward DNS lookup for a domain names and add to inscope/outscope/dead_domains
-def fDNS(name):
+# Do a forward DNS lookup for a domain names and add to database
+def fDNS(name,fldinscope,fld):
     log("Forward DNS lookup for %s" % name)
     name=name.strip("\n")
     try:
@@ -288,14 +157,28 @@ def fDNS(name):
             if not alreadyProcessed(ip) and isIP(ip):
                 log("(+) DNS IP DISCOVERY! ADDING TO QUEUE: %s" %ip)
                 IPq.add(ip)
-            if ip in inscope.keys(): inscope[ip].add(name)
-            elif ip in outscope.keys(): outscope[ip].add(name)
-            else: outscope[ip] = {name}
+            db.execute("SELECT domains FROM data WHERE ip = ?", (ip,))
+            result = db.fetchone()
+            # If row already exists
+            if result:
+                # check if any domains already associated. If not, add the current domain to the list
+                if result[0] == "":
+                    updateddomains = {name}
+                else:
+                    # Convert domains string to set
+                    updateddomains = set(result[0].split(','))
+                    updateddomains.add(name)
+                # Convert domains set back to comma separated string
+                updatedcommastring = ','.join(updateddomains)
+                db.execute("UPDATE data SET domains = ? WHERE ip = ?", (updatedcommastring,ip))
+            else:
+                db.execute("INSERT INTO data VALUES(?,?,?)", (ip,name,False))
         return True
     except Exception as e: 
         log("(-) fDNS lookup failed on: " + name)
         log("\tException: %s" % e)
-        dead_domains.add(name)
+        # Add domain to dead_domains
+        db.execute("INSERT OR REPLACE INTO dead_domains VALUES(?,?)", (name,fldinscope))
         return False
 
 
@@ -315,7 +198,6 @@ def isIP(ip):
     except:
         return False
 
-
 # Take a FLD and return subdomains identified with sublister
 def SDenum(domain):
     subdomains = set()
@@ -332,36 +214,124 @@ def SDenum(domain):
             Dq.add(subdomain)
     return subdomains
 
+def isNewFLD(fld):
+    db.execute("SELECT fld FROM flds WHERE fld=?",(fld,))
+    result = db.fetchone()
+    if result:
+        return False
+    else: 
+        return True
 
+def fldinscope(fld):
+    db.execute("SELECT fld_inscope FROM flds WHERE fld=?",(fld,))
+    result = db.fetchone()
+    if result:
+        return result[0] == "true"
+    else:
+        return False
+        
+def processDomain(domain):
+    log("")
+    log("Processing domain: %s" %domain)
+    try:
+        fld = get_fld(domain, fix_protocol=True)
+        fld_inscope = fldinscope(fld)
+    except:
+        log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
+        db.execute("INSERT OR REPLACE INTO dead_domains VALUES(?,?)", (domain,fld_inscope))
+        return 0
+    ignore = False
+    for ignorefld in flds_ignore:
+        if ignorefld in fld:
+            log("(-) FLD is in list of FLDs to ignore. Ignoring %s" % fld)
+            ignore = True
+    if not ignore:
+        if isNewFLD(fld):
+            log("(+) New FLD Discovered! %s" % fld)
+            db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (fld,"pending",""))
+        elif fld_inscope:
+            resolves = fDNS(domain,True,fld)
+            if resolves: 
+                for port in ports:
+                    TLSenum(domain,port)
+        else:
+            log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
+    db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?)",(domain,"domain",fld_inscope,fld))
+    log("Finished processing domain: %s" %domain)
+
+def processIP(ip):
+    log("")
+    log("Processing IP: %s" %ip)
+    rDNS(ip)
+    db.execute("SELECT ip_inscope FROM data WHERE ip=?",(ip,))
+    result = db.fetchone()
+    if result == 1:
+        for port in ports:
+            TLSenum(ip,port)
+    log("Finished Processing IP: %s" %ip)
+    db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?)",(ip,"IP_ADDRESS","NA","NA"))
+
+def populateWhois(flds):
+    log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
+    # Currently this just grabs and populates whoisdata for the provided list
+    for fld in flds_new:
+        fld = fld[0]
+        # TODO - check if whoisdata field is already populated before grabbing whois data
+        whoisdata = json.dumps(getwhois(fld))
+        db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,fld))
+
+
+def processNewFlds(flds_new):
+    pass
+    # TODO - now we should have a thread to go through each pending fld and determine if it should be added to scope
+    #   should be left as pending until it has been marked "in scope" or "out of scope"
+    #   once it's selected as in scope, grab all columns from the "processed" table that match the subdomain and add them back to the domain queue
+    # TODO - should also have a keyword search for whoisdata 
+
+    #flds_to_process = LIST OF FLDS DETERMINED TO NOW BE IN SCOPE
+    #log("(+++) Resuming processing IP and Domain queues\n\n\n")
+    # for fld in flds_to_process:
+    #    processFldAsInScope(fld)
+
+def processFldAsInScope(fld):
+    db.execute("UPDATE flds SET fld_inscope = ? WHERE fld = ?", ("true",fld))
+    flds_inscope.add(fld)
+    # If we added the FLD to scope, then we need to revisit
+    for domain in revisit_queue:
+        if fld in domain and domain != fld: 
+            log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
+            Dq.add(domain)
+    SDenum(fld)
+    Dq.add(fld)
+
+
+#TODO add argument for keywords file to check subdomain against all in-scope domains
+# i.e. keyword testing would add testing.fld1.com, testing.fld2.com, etc. to queue
 if __name__ == '__main__':
-    log("Starting %s" % progname)
+    clargs = " ".join(sys.argv)
+    log("Starting %s" % clargs)
     log("Processing IPs from %s" %args.infile) 
     readips()
     for ip in IPq:
-        inscope[ip.rstrip('\n')]=set()
-    ### TODO ###
-    ### Add option for list of subdomains to include. Read from this list and add them to the domain queue
-    ### Alternatively have subdomain prefix that checks against all in-scope FLDs
-    ###########
+        db.execute("INSERT OR IGNORE INTO data VALUES(?,?,?)", (ip,"",True))
 
-    # Injest FLDs and run subdomain enumeration on all of them
+    # Ingest FLDs and run subdomain enumeration on all of them
     initdomains = set()
     if args.domain:
         domain = args.domain.lower()
-        Dq.add(domain)
         initdomains.add(domain)
-        flds_processed.add(domain)
-        flds_inscope.add(domain)
     if args.domains:
         f=open(args.domains, "r")
         for domain in f: 
             domain = domain.strip().lower()
-            Dq.add(domain)
             initdomains.add(domain)
-            flds_processed.add(domain)
-            flds_inscope.add(domain)
     for domain in initdomains:
+        Dq.add(domain)
+        db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (domain,"true",""))
         subdomains = SDenum(domain)
+        log("(+) Grabbing whoisdata for %s. This may take a while..." % domain)
+        whoisdata = json.dumps(getwhois(domain))
+        db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,domain))
     ports = {}
     if args.tls:
        ports={443}
@@ -372,85 +342,33 @@ if __name__ == '__main__':
         for sd in f:
             subdomain = sd.strip().lower()
             Dq.add(subdomain)
+    con.commit()
     # Main loop - go through remaining IPs and domains and run flow for each
-    # and add additional discovered IPs or domains to queue
-    # Currently pops and processes one IP and one domain per iteration in this while loop
-    while (Dq or IPq or flds_new):
-        if Dq: 
+    # add additional discovered IPs and domains to queue
+    # Pops and processes one IP and one domain per iteration in this while loop
+    while (Dq or IPq):
+        while (Dq):
             domain = Dq.pop()
             if not alreadyProcessed(domain):
-                log("")
-                log("Processing domain: %s" %domain)
-                try:
-                    fld = get_fld(domain, fix_protocol=True)
-                except:
-                    log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
-                    dead_domains.add("{INTERNAL DOMAIN???}  " + domain)
-                    continue
-                ignore = False
-                for x in flds_ignore:
-                    if x in fld:
-                        log("(-) FLD is in list of FLDs to ignore. Ignoring %s" % fld)
-                        ignore = True
-                if not ignore:
-                    if not alreadyProcessed(fld) and fld not in flds_processed and fld not in flds_seen:
-                        flds_new.add(fld)
-                        flds_seen.add(fld)
-                    if fld in flds_inscope:
-                        fDNS(domain)
-                        if domain not in dead_domains:
-                            for port in ports:
-                                TLSenum(domain,port)
-                        processed.add(domain)
-                    else:
-                        log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
-                        if domain not in revisit_queue:
-                            revisit_queue.add(domain)
-                log("Finished processing domain: %s" %domain)
-        if IPq: 
+                processDomain(domain)
+        while (IPq):
             ip = IPq.pop()
             if not alreadyProcessed(ip):
-                log("")
-                log("Processing IP: %s" %ip)
-                rDNS(ip)
-                if ip in inscope:
-                    for port in ports:
-                        TLSenum(ip,port)
-                log("Finished Processing IP: %s" %ip)
-                processed.add(ip)
-
-        if not Dq and not IPq and flds_new:
+                processIP(ip)
+        if not Dq and not IPq:
             log("(+++) Finished processing IP and Domain queues\n\n\n") 
             log("---------------------------------------------------------------------------\n")
+            db.execute("SELECT fld FROM flds WHERE fld_inscope=?",("pending",))
+            flds_new = db.fetchall()
             if flds_new:
                 log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
                 log(flds_new)
-            flds_to_process = set()
-            whoisdata = {}
-            log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
-            for fld in flds_new:
-                whoisdata[fld] = getwhois(fld)
-            for fld in flds_new:
-                # if newfld is populated, the fld has been added to scope
-                newfld = newFLD(fld, whoisdata)
-                if newfld:
-                    flds_to_process.add(newfld)
-            # Reset flds_new queue for next round of enum
-            flds_new = set()
-            # Process new FLDs selected as in-scope
-            log("(+++) Resuming processing IP and Domain queues\n\n\n")
-            for fld in flds_to_process:
-                flds_inscope.add(fld)
-                # If we added the FLD to scope, then we need to revisit
-                for domain in revisit_queue:
-                    if fld in domain and domain != fld: 
-                        log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
-                        Dq.add(domain)
-                SDenum(fld)
-                Dq.add(fld)
-            
-    print("-------------------------------------")
-    printout()
-    if args.outfile: printfile(args.outfile)
+                populateWhois(flds_new)
+                processNewFlds(flds_new)
+        con.commit()
+    
+    con.commit()            
+    con.close()
+
 
 
