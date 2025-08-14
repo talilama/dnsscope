@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import server
 import sqlite3, json, sys, tty, socket, ssl, ipaddress, logging, argparse, termios, OpenSSL
 from ipwhois import IPWhois
 from dns import resolver, reversename
@@ -9,18 +10,20 @@ from tld import get_tld, get_fld
 # Setup Argument Parameters 
 progname = 'DNSscope'
 parser = argparse.ArgumentParser(description='Takes a list of IPs and look for domains/subdomains that are associated with them or vice versa')
-parser.add_argument('-i', '--infile', help='File with explicitly in-scope IPs to check DNS records', required=True)
+parser.add_argument('-i', '--infile', help='File with explicitly in-scope IPs to check DNS records')
 parser.add_argument('-d', '--domain', help='run subdomain enumeration on a single domain')
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
-parser.add_argument('--tls', action="store_true", help='NON-PASSIVE! - For each identified subdomain and IP, check port 443 for TLS certificate CN and SAN')
-parser.add_argument('-p', '--ports', nargs='+', help='NON-PASSIVE! - To be run with the --tls command. Provide additional ports to check for TLS certificate CNs i.e. --tls --ports 8443,9443')
+parser.add_argument('--notls', action="store_true", help='Skip TLS checks and only run pure DNS enumeration')
+parser.add_argument('-p', '--ports', nargs='+', default='443', help='Provide additional ports besides 443 to check for TLS certificate CNs --ports 8443,9443')
+parser.add_argument('--server', action = "store_true",  help='Just runs the webserver on port http://localhost:5432')
 args = parser.parse_args()
 
 logging.basicConfig(level=logging.INFO, filename="output.log", filemode="a", format="%(asctime)-15s %(levelname)-8s %(message)s")
 
 # Create database and tables:
-con = sqlite3.connect("DNSscope.db")
+# don't check same thread - this is only called single-threaded in this script unless being called from server.py which is read-only
+con = sqlite3.connect("DNSscope.db", check_same_thread=False)
 db = con.cursor()
 createtable = "CREATE TABLE IF NOT EXISTS "
 db.execute(createtable + "dead_domains(domain,fld_inscope,UNIQUE(domain))")
@@ -184,7 +187,7 @@ def fDNS(name,fldinscope,fld):
 
 # run sublist3r on domain and do forward DNS lookup for each
 def sublister(domain):
-    log("Searching for subdomains of %s. This may take a few seconds..." % domain)
+    log("Searching for subdomains of %s. This may take a while..." % domain)
     bf = False
     subdomains = sl.sublister_main(domain, 30, None, None, silent=True, verbose=False, enable_bruteforce=bf, engines=None)
     return subdomains
@@ -230,7 +233,7 @@ def fldinscope(fld):
     else:
         return False
         
-def processDomain(domain):
+def processDomain(domain, ports):
     log("")
     log("Processing domain: %s" %domain)
     try:
@@ -279,41 +282,92 @@ def populateWhois(flds):
         # TODO - check if whoisdata field is already populated before grabbing whois data
         whoisdata = json.dumps(getwhois(fld))
         db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,fld))
+        con.commit()
 
 
 def processNewFlds(flds_new):
-    pass
-    # TODO - now we should have a thread to go through each pending fld and determine if it should be added to scope
-    #   should be left as pending until it has been marked "in scope" or "out of scope"
-    #   once it's selected as in scope, grab all columns from the "processed" table that match the subdomain and add them back to the domain queue
-    # TODO - should also have a keyword search for whoisdata 
+    conn = sqlite3.connect("DNSscope.db", check_same_thread=False)
+    c = conn.cursor()
+    log("(+) /process-new-flds called. Adding the following FLDs to scope and processing further")
+    log(flds_new)
+    log("\n\n(+++) Resuming processing IP and Domain queues\n")
+    try:
+        for fld in flds_new:
+            log("(+) Reprocessing FLD %s" % fld)
+            c.execute("SELECT * FROM flds WHERE fld = ?", (fld,))
+            result = c.fetchone()
+            if not result:
+                log("(-) %s FLD not found in FLDs. Skipping" % fld)
+                continue
+            elif result[1] == "true":
+                log("(-) %s FLD is already marked as in-scope. Skipping" % fld)
+                continue
+            # mark fld as in-scope
+            c.execute("UPDATE flds SET fld_inscope = ? WHERE fld = ?", ('true',fld))
+            # grab all domains for reprocessing that match the fld marked as newly in-scope
+            c.execute("SELECT domainorip FROM processed WHERE fld = ?", (fld,)) 
+            revisit_queue = c.fetchall()
+            for domain in revisit_queue:
+                domain = domain[0]
+                log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
+                Dq.add(domain)
+                c.execute("DELETE FROM processed WHERE domainorip = ?", (domain,))
+            SDenum(fld)
+        conn.commit()
+        conn.close()
+        process({443})
+    except Exception as r:
+        log("(-) Error processing additional FLDs\n%s" % r)
 
-    #flds_to_process = LIST OF FLDS DETERMINED TO NOW BE IN SCOPE
-    #log("(+++) Resuming processing IP and Domain queues\n\n\n")
-    # for fld in flds_to_process:
-    #    processFldAsInScope(fld)
+# Main loop - go through remaining IPs and domains and run flow for each
+# add additional discovered IPs and domains to queue
+# Pops and processes one IP and one domain per iteration in this while loop
+def process(ports):
+   i = 0
+   while (Dq or IPq):
+        while (Dq):
+            if i % 50 == 0:
+                con.commit()
+            i=i+1
+            domain = Dq.pop()
+            if not alreadyProcessed(domain):
+                processDomain(domain,ports)
+        while (IPq):
+            if i % 50 == 0:
+                con.commit()
+            i=i+1
+            ip = IPq.pop()
+            if not alreadyProcessed(ip):
+                processIP(ip)
+        if not Dq and not IPq:
+            log("(+++) Finished processing IP and Domain queues\n\n\n") 
+            log("---------------------------------------------------------------------------\n")
+            db.execute("SELECT fld FROM flds WHERE fld_inscope=?",("pending",))
+            flds_new = db.fetchall()
+            if flds_new:
+                log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
+                log(flds_new)
+                populateWhois(flds_new)
+                processNewFlds(flds_new)
+        con.commit()
+  
 
-def processFldAsInScope(fld):
-    db.execute("UPDATE flds SET fld_inscope = ? WHERE fld = ?", ("true",fld))
-    flds_inscope.add(fld)
-    # If we added the FLD to scope, then we need to revisit
-    for domain in revisit_queue:
-        if fld in domain and domain != fld: 
-            log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
-            Dq.add(domain)
-    SDenum(fld)
-    Dq.add(fld)
-
-
-#TODO add argument for keywords file to check subdomain against all in-scope domains
-# i.e. keyword testing would add testing.fld1.com, testing.fld2.com, etc. to queue
 if __name__ == '__main__':
     clargs = " ".join(sys.argv)
     log("Starting %s" % clargs)
-    log("Processing IPs from %s" %args.infile) 
-    readips()
-    for ip in IPq:
-        db.execute("INSERT OR IGNORE INTO data VALUES(?,?,?)", (ip,"",True))
+    if args.server:
+        server.app.run(host="127.0.0.1", port=5432, debug=False)
+        exit(0)
+    try:
+        log("Processing IPs from %s" %args.infile) 
+        readips()
+        for ip in IPq:
+            db.execute("INSERT OR IGNORE INTO data VALUES(?,?,?)", (ip,"",True))
+    except:
+        print("(-) Could not read IP file.\n\n")
+        parser.print_help()
+        
+        exit(-1)
 
     # Ingest FLDs and run subdomain enumeration on all of them
     initdomains = set()
@@ -333,7 +387,7 @@ if __name__ == '__main__':
         whoisdata = json.dumps(getwhois(domain))
         db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,domain))
     ports = {}
-    if args.tls:
+    if args.notls:
        ports={443}
        if args.ports: 
            for x in args.ports: ports.add(int(x))
@@ -343,32 +397,8 @@ if __name__ == '__main__':
             subdomain = sd.strip().lower()
             Dq.add(subdomain)
     con.commit()
-    # Main loop - go through remaining IPs and domains and run flow for each
-    # add additional discovered IPs and domains to queue
-    # Pops and processes one IP and one domain per iteration in this while loop
-    while (Dq or IPq):
-        while (Dq):
-            domain = Dq.pop()
-            if not alreadyProcessed(domain):
-                processDomain(domain)
-        while (IPq):
-            ip = IPq.pop()
-            if not alreadyProcessed(ip):
-                processIP(ip)
-        if not Dq and not IPq:
-            log("(+++) Finished processing IP and Domain queues\n\n\n") 
-            log("---------------------------------------------------------------------------\n")
-            db.execute("SELECT fld FROM flds WHERE fld_inscope=?",("pending",))
-            flds_new = db.fetchall()
-            if flds_new:
-                log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
-                log(flds_new)
-                populateWhois(flds_new)
-                processNewFlds(flds_new)
-        con.commit()
     
+    process(ports)
+   
     con.commit()            
     con.close()
-
-
-

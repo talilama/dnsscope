@@ -1,4 +1,6 @@
+import dnsscope
 from flask import Flask,request,redirect
+from multiprocessing import Process
 import re
 import math
 import sqlite3
@@ -17,6 +19,7 @@ def get_navbar():
         <a href="/flds" style="color:white; margin:0 15px; text-decoration:none;">Free-level Domains</a>
         <a href="/processed" style="color:white; margin:0 15px; text-decoration:none;">Processed</a>
         <a href="/dead-domains" style="color:white; margin:0 15px; text-decoration:none;">Dead Domains</a>
+        <a href="/process-new-flds" style="color:white; margin:0 15px; text-decoration:none;">New FLDs</a>
     </div>
     """
 
@@ -153,37 +156,88 @@ def render_data(is_explicit):
 
     return html
 
+@app.route("/process-new-flds", methods=["POST","GET"])
+def process_new_flds():
+    checked_values_raw = request.form.getlist("fld_values[]")  # list of checked values
+    # sanitize user input:
+    checked_values = [re.sub(r"[^A-Za-z0-9-.]", "", fld) for fld in checked_values_raw]
+    confirmed = request.form.get("confirmed","").lower() == "true"
+    html = f"""
+    <html>
+    <head>
+        <title>Process New FLDs</title>
+        <style>
+            body {{ text-align: center; font-family: Arial, sans-serif; }}
+            h1 {{ text-align: center; }}
+            h2 {{ text-align: center; }}
+            form {{ text-align: center; margin-bottom: 20px; }}
+            label {{ text-align: center; }}
+        </style>
+    </head>
+    <body>
+        {get_navbar()}
+        <h2>Process new FLDs</h2>
+    """
+    if confirmed:
+        html += "Submitted the following values for processing:"
+        html += f"<br><br><b>{', '.join(checked_values)}</b><br>"
+        p = Process(target=run_in_background, args=(checked_values,))
+        p.start()
+        return html
+    if checked_values:
+        html += "Would you like to mark the following FLDs as in-scope? <br>This will mark them as in-scope and submit them for further analysis:"
+        html += f"<br><br><b>{', '.join(checked_values)}</b><br>"
+        html += f'<form class="fld" action="/process-new-flds" method="post">'
+        for fld in checked_values:
+            html += f'<input type="hidden" name="fld_values[]" value="{fld}">'
+        html += '<br><button type="submit" name="confirmed" value="true">Confirm all above FLDs as in-scope</button></body>'
+    else:
+        html += "Submit values from the Free-Level Domains page for additional processing"
+        html += "<br><br><a href='/flds'>Free-Level Domains</a>"
+    return html
+
+def run_in_background(flds):
+    dnsscope.processNewFlds(flds)
+
 @app.route("/flds")
 def free_level_domains():
     search_flag = request.args.get("search", "").lower() == "true"
     inscope_raw = request.args.get("fld_inscope", "")
-    inscope = re.sub(r"[^0-3]", "", inscope_raw)
+    inscope = re.sub(r"[^0-2]", "", inscope_raw)
     fld_filter_raw = request.args.get("fld_keyword", "")
     fld_filter = re.sub(r"[^A-Za-z0-9-.]", "", fld_filter_raw)
     whois_filter_raw = request.args.get("whois_keyword", "")
     whois_filter = re.sub(r"[^A-Za-z0-9-.]", "", whois_filter_raw)
     
-    limit = int(request.args.get("limit", 50))
-    page = int(request.args.get("page", 1))
-    offset = (page - 1) * limit
+    limit_raw = request.args.get("limit", "ALL")
+    if limit_raw != "ALL":
+        limit = int(limit_raw)
+        page = int(request.args.get("page", 1))
+        offset = (page - 1) * limit
+    elif limit_raw == "ALL":
+        limit = limit_raw
+
 
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
     inscope_filter = "%"
     if inscope == "0":
-        inscope_filter = "pending"
+        inscope_filter = "false"
     elif inscope == "1":
         inscope_filter = "true"
-    elif inscope == "2":
-        inscope_filter = "false"
-
-    
 
     # First, get total rows for the current filter
     c.execute("SELECT COUNT(*) FROM flds WHERE fld_inscope LIKE ? AND fld LIKE ? AND whoisdata LIKE ?", (inscope_filter,f"%{fld_filter}%", f"%{whois_filter}%"))
     total_rows = c.fetchone()[0]
-    total_pages = math.ceil(total_rows / limit)
+
+    if limit == "ALL":
+        total_pages = 1
+        limit = total_rows
+        offset = 0
+        page = 1
+    else:
+        total_pages = math.ceil(total_rows / limit)
 
     c.execute("SELECT * FROM flds WHERE fld_inscope LIKE ? AND fld LIKE ? AND whoisdata LIKE ? LIMIT ? OFFSET ?", (inscope_filter,f"%{fld_filter}%", f"%{whois_filter}%", limit, offset))
 
@@ -195,18 +249,24 @@ def free_level_domains():
     <head>
         <title>Free-Level Domains (FLDs)</title>
         <style>
-            table {{ border-collapse: collapse; width: 80%; margin: 20px auto; }}
-            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px auto; table-layout: fixed;}}
+            th, td {{ border: 1px solid #ccc; padding: 4px; text-align: left; }}
+            td.number-col,th.number-col {{ width: 10px; text-align: center; }}
+            td.fld-col,th.fld-col {{ width: 150px; text-align: left; }}
+            td.scope-col,th.scope-col {{ width: 50px; text-align: left; }}
+            td.whois-col,th.whois-col {{ width: 900px; text-align: left; }}
             th {{ background-color: #f2f2f2; }}
             body {{ font-family: Arial, sans-serif; }}
             h1 {{ text-align: center; }}
             h2 {{ text-align: center; }}
             form {{ text-align: center; margin-bottom: 20px; }}
+            form.fld {{ text-align: left; }}
+            label {{ text-align: left; }}
         </style>
     </head>
     <body>
         {get_navbar()}
-        <h2>All Free-Level Domaisn (FLDs) discovered during processing</h2>
+        <h2>All Free-Level Domains (FLDs) discovered during processing</h2>
         <form method="GET">
             <input type="hidden" name="search" value="true">
             <label>
@@ -218,19 +278,19 @@ def free_level_domains():
                 <option value="25" {"selected" if limit == 25 else ""}>25</option>
                 <option value="50" {"selected" if limit == 50 else ""}>50</option>
                 <option value="100" {"selected" if limit == 100 else ""}>100</option>
+                <option value="ALL" {"selected" if limit_raw == "ALL" else ""}>ALL</option>
             </select>
-            <input type="submit" value="Apply">
             <br><br><b>Filter on whether FLD is in-scope</b><br><br>
             <label><input type="radio" name="fld_inscope" value="3" {"checked" if inscope_filter == "%" else ""}>All</label>
-            <label><input type="radio" name="fld_inscope" value="0" {"checked" if inscope_filter == "pending" else ""}>FLD pending</label>
+            <label><input type="radio" name="fld_inscope" value="0" {"checked" if inscope_filter == "false" else ""}>FLD out-of-scope</label>
             <label><input type="radio" name="fld_inscope" value="1" {"checked" if inscope_filter == "true" else ""}>FLD in-scope</label>
-            <label><input type="radio" name="fld_inscope" value="2" {"checked" if inscope_filter == "false" else ""}>FLD out-of-scope</label>
+            <br><br><input type="submit" value="Apply Search Filter">
         </form>
-        <p><br><u>Total Rows:
+        <br><br><br><u>Total Rows:
         {total_rows}</u>
-        </p>"""
+        """
     
-    # Pagination links
+    # Pagination links top
     html += "<div style='text-align:center; margin-top:20px;'>Pages: "
     for p in range(1, total_pages + 1):
         if p == page:
@@ -239,23 +299,30 @@ def free_level_domains():
             html += f"<a href='?page={p}&limit={limit}&search={search_flag}&inscope={inscope}&fld_keyword={fld_filter}&whois_keyword={whois_filter}' style='margin:0 5px;'>{p}</a>"
     html += "</div>"
     html += "\n</body>\n</html>"
-        
+    
+    # Table headers, select all, and submit for processing
     html += """
+    <p>
+    <input type="checkbox" id="select-all">    Select All?</p>
+    <form class="fld" action="/process-new-flds" method="post">
+    <button type="submit">Submit all checked FLDs as in-scope</button>
         <table>
             <tr>
-                <th>#</th>
-                <th>Free-Level Domain</th>
-                <th>FLD In Scope?</th>
-                <th>Whois Data</th>
+                <th class='number-col'>#</th>
+                <th class='fld-col'>Free-Level Domain<br></th>
+                <th class='scope-col'>FLD In Scope?</th>
+                <th class='whois-col'>Whois Data</th>
             </tr>
     """
+    
+    # Table data
     i = 1
     for row in rows:
-        html += f"<tr><td>{i}</td><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td></tr>"
+        html += f"<tr><td class='number-col'>{i}</td><td class='fld-col'><input type='checkbox' class='fld' name='fld_values[]' value='{row[0]}'>{row[0]}</td><td class='scope-col'>{row[1]}</td><td class='whois-col'>{row[2]}</td></tr>"
         i=i+1
-    html += "\n</table>\n"
+    html += "\n</table></form>\n"
 
-    # Pagination links
+    # Pagination links bottom
     html += "<div style='text-align:center; margin-top:20px;'>Pages: "
     for p in range(1, total_pages + 1):
         if p == page:
@@ -264,6 +331,13 @@ def free_level_domains():
             html += f"<a href='?page={p}&limit={limit}&search={search_flag}&inscope={inscope}&fld_keyword={fld_filter}&whois_keyword={whois_filter}' style='margin:0 5px;'>{p}</a>"
     html += "</div>"
     html += "\n</body>\n</html>"
+    html += """<script>
+    document.getElementById('select-all').addEventListener('change', function() {
+        document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            if (cb !== this) cb.checked = this.checked;
+        });
+    });
+    </script>"""
 
     return html
 
@@ -377,7 +451,6 @@ def processed():
     # Trying different logic to prevent the cluster of SELECT statements
     datatype_raw = request.args.get("type", "")
     datatype = re.sub(r"[^0-2]", "", datatype_raw)
-    print("type param: " + datatype)
     inscope_raw = request.args.get("fld_inscope", "")
     inscope = re.sub(r"[^0-2]", "", inscope_raw)
     search_raw = request.args.get("keyword", "")
@@ -391,7 +464,6 @@ def processed():
         type_filter = "IP_ADDRESS"
     elif datatype == "1":
         type_filter = "domain"
-    print("***" + type_filter)
     
     inscope_filter = "%"
     if inscope == "0":
@@ -443,8 +515,8 @@ def processed():
         <h2>Processed Domains and IP Addresses</h2>
         <form method="GET">
             <label>
-            <input type="text" name="keyword" value="{search}" placeholder="Search FLDs">
-            <input type="text" name="fld_keyword" value="{fld}" placeholder="Search whoisdata">
+            <input type="text" name="keyword" value="{search}" placeholder="Search Domain or IP">
+            <input type="text" name="fld_keyword" value="{fld}" placeholder="Search FLD">
             <label for="limit">Rows per page:</label>
             <select name="limit">
                 <option value="10" {"selected" if limit == 10 else ""}>10</option>
@@ -509,4 +581,4 @@ if __name__ == "__main__":
     if not os.path.exists(DB_FILE):
         print("Cannot find database file")
         exit(1)
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5432, debug=False)
