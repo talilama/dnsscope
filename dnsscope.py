@@ -354,7 +354,6 @@ def processNewFlds(flds_new):
     c = conn.cursor()
     log("(+) /process-new-flds called. Adding the following FLDs to scope and processing further")
     log(flds_new)
-    log("\n\n(+++) Resuming processing IP and Domain queues\n")
     try:
         for fld in flds_new:
             log("(+) Reprocessing FLD %s" % fld)
@@ -380,6 +379,8 @@ def processNewFlds(flds_new):
         conn.commit()
         conn.close()
         ports = {443}
+        log("\n")
+        log("(+++) Resuming processing IP and Domain queues\n")
         process(ports)
     except Exception as r:
         log("(-) Error processing additional FLDs\n%s" % r)
@@ -405,7 +406,6 @@ def process(ports):
             if not alreadyProcessed(ip):
                 processIP(ip,ports)
         if not Dq and not IPq:
-            log("(+++) Finished processing IP and Domain queues\n\n\n") 
             log("---------------------------------------------------------------------------\n")
             db.execute("SELECT fld FROM flds WHERE fld_inscope=?", ("pending",))
             flds_new = [t[0] for t in db.fetchall()]
@@ -413,6 +413,7 @@ def process(ports):
                 log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
                 populateWhois(flds_new)
         con.commit()
+   log("(+++) Finished processing IP and Domain queues\n\n\n") 
   
 
 if __name__ == '__main__':
