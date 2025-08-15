@@ -226,7 +226,7 @@ def free_level_domains():
 
     inscope_filter = "%"
     if inscope == "0":
-        inscope_filter = "false"
+        inscope_filter = "pending"
     elif inscope == "1":
         inscope_filter = "true"
 

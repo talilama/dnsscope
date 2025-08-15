@@ -323,7 +323,8 @@ def processNewFlds(flds_new):
             SDenum(fld)
         conn.commit()
         conn.close()
-        process(set(443))
+        ports = {443}
+        process(ports)
     except Exception as r:
         log("(-) Error processing additional FLDs\n%s" % r)
 
