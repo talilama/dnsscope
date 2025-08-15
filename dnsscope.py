@@ -17,6 +17,7 @@ parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to 
 parser.add_argument('--notls', action="store_true", help='Skip TLS checks and only run pure DNS enumeration')
 parser.add_argument('-p', '--ports', nargs='+', default='443', help='Provide additional ports besides 443 to check for TLS certificate CNs --ports 8443,9443')
 parser.add_argument('--server', action = "store_true",  help='Just runs the webserver on port http://localhost:5432')
+parser.add_argument('--reprocess', action = "store_true",  help='This will delete all entries in the "processed" table. This means all data will remain present but all identified domains and IP addressed will be treated as new and will be reprocessed.')
 args = parser.parse_args()
 
 logging.basicConfig(level=logging.INFO, filename="output.log", filemode="a", format="%(asctime)-15s %(levelname)-8s %(message)s")
@@ -258,7 +259,6 @@ def processDomain(domain, ports):
             if resolves: 
                 for port in ports:
                     cert = TLSenum(domain,port)
-                    log(str(cert))
                     certdata.append(cert)
         else:
             log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
@@ -362,11 +362,23 @@ def process(ports):
 if __name__ == '__main__':
     clargs = " ".join(sys.argv)
     log("Starting %s" % clargs)
+    
     if 'PASTE YOUR VIRUSTOTAL KEY HERE' in sl.vt_apikey:
         log("\n(-) VirusTotal API Key Not Found!\nYou should add your VirusTotal API key to the top of sublister.py for more robust subdomain enumeration\n\n")
+    
     if args.server:
         server.app.run(host="127.0.0.1", port=5432, debug=False)
         exit(0)
+    if args.reprocess:
+        log("You have selected reprocess. This will irreversibly delete all data within the \"processed\" table")
+        answer = input("Do you want to continue? (y/n): ").strip().lower()
+        if answer == "y":
+            log("(+) Deleting all rows from the \"processed\" table")
+            db.execute("DELETE FROM processed")
+            con.commit()
+        else:
+            print("Aborted. Exiting")
+            exit(-1)
     try:
         log("Processing IPs from %s" %args.infile) 
         readips()
