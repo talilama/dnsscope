@@ -15,7 +15,7 @@ parser.add_argument('-d', '--domain', help='run subdomain enumeration on a singl
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
 parser.add_argument('--notls', action="store_true", help='Skip TLS checks and only run pure DNS enumeration')
-parser.add_argument('-p', '--ports', nargs='+', default='443', help='Provide additional ports besides 443 to check for TLS certificate CNs. i.e. to run TLSenum on ports 443,8443,9443,and 8080, run: --ports 8443 9443 8080')
+parser.add_argument('-p', '--ports', nargs='+', default=['443'], help='Provide additional ports besides 443 to check for TLS certificate CNs. i.e. to run TLSenum on ports 443,8443,9443,and 8080, run: --ports 8443 9443 8080')
 parser.add_argument('--server', action = "store_true",  help='Just runs the webserver on port http://localhost:5432')
 parser.add_argument('--reprocess', action = "store_true",  help='This will delete all entries in the "processed" table. This means all data will remain present but all identified domains and IP addressed will be treated as new and will be reprocessed.')
 args = parser.parse_args()
@@ -273,7 +273,7 @@ def processIP(ip,ports):
     db.execute("SELECT ip_inscope FROM data WHERE ip=?",(ip,))
     result = db.fetchone()
     certdata = []
-    if result == 1:
+    if result:
         for port in ports:
             cert = TLSenum(ip,port)
             certdata.append(cert)
@@ -283,12 +283,11 @@ def processIP(ip,ports):
 
 def populateWhois(flds):
     log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
-    # Currently this just grabs and populates whoisdata for the provided list
+    # Grabs and populates whoisdata for the provided list
     for fld in flds:
-        fld = fld[0]
-        db.execute("SELECT whoidata from flds WHERE fld = ?", (fld,))
+        db.execute("SELECT whoisdata from flds WHERE fld = ?", (fld,))
         result = db.fetchone()
-        if not result:
+        if result[0] == '':
             whoisdata = json.dumps(getwhois(fld))
             db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,fld))
             con.commit()
@@ -324,7 +323,7 @@ def processNewFlds(flds_new):
             SDenum(fld)
         conn.commit()
         conn.close()
-        process({443})
+        process(set(443))
     except Exception as r:
         log("(-) Error processing additional FLDs\n%s" % r)
 
@@ -351,13 +350,12 @@ def process(ports):
         if not Dq and not IPq:
             log("(+++) Finished processing IP and Domain queues\n\n\n") 
             log("---------------------------------------------------------------------------\n")
-            db.execute("SELECT fld FROM flds WHERE fld_inscope=?",("pending",))
-            flds_new = db.fetchall()
+            db.execute("SELECT fld FROM flds WHERE fld_inscope=?", ("pending",))
+            flds_new = [t[0] for t in db.fetchall()]
             if flds_new:
                 log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
                 log(flds_new)
                 populateWhois(flds_new)
-                processNewFlds(flds_new)
         con.commit()
   
 
@@ -372,6 +370,18 @@ if __name__ == '__main__':
     if args.server:
         server.app.run(host="127.0.0.1", port=5432, debug=False)
         exit(0)
+    
+    ports = set()
+    if not args.notls:
+       if args.ports: 
+           for x in args.ports: ports.add(int(x))
+    
+    if args.subdomains:
+        f=open(args.subdomains, "r")
+        for sd in f:
+            subdomain = sd.strip().lower()
+            Dq.add(subdomain)
+
     if args.reprocess:
         log("You have selected reprocess. This will irreversibly delete all data within the \"processed\" table")
         answer = input("Do you want to continue? (y/n): ").strip().lower()
@@ -382,21 +392,18 @@ if __name__ == '__main__':
         else:
             print("Aborted. Exiting")
             exit(-1)
+
     try:
-        log("Processing IPs from %s" %args.infile) 
+        log("Processing IPs from %s" % args.infile) 
         readips()
         for ip in IPq:
             db.execute("INSERT OR IGNORE INTO data VALUES(?,?,?)", (ip,"",True))
-    except:
-        print("(-) Could not read IP file.\n\n")
+    except Exception as e:
+        print("(-) Error processing IP file.\n\tError: %s\n" % e)
         parser.print_help()
         
         exit(-1)
     
-    ports = set()
-    if not args.notls:
-       if args.ports: 
-           for x in args.ports: ports.add(int(x))
 
     # Ingest FLDs and run subdomain enumeration on all of them
     initdomains = set()
@@ -412,17 +419,10 @@ if __name__ == '__main__':
         Dq.add(domain)
         db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (domain,"true",""))
         subdomains = SDenum(domain)
-        log("(+) Grabbing whoisdata for %s. This may take a while..." % domain)
-        whoisdata = json.dumps(getwhois(domain))
-        db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,domain))
-    if args.subdomains:
-        f=open(args.subdomains, "r")
-        for sd in f:
-            subdomain = sd.strip().lower()
-            Dq.add(subdomain)
-    con.commit()
+    log("(+) Grabbing whoisdata for %s. This may take a while..." % domain)
+    populateWhois(initdomains)
     
+    con.commit()
     process(ports)
-   
     con.commit()            
     con.close()
