@@ -1,6 +1,8 @@
 import dnsscope
-from flask import Flask,request,redirect
+from flask import Flask,request,redirect,send_file
 from multiprocessing import Process
+from openpyxl import Workbook
+import io
 import re
 import math
 import sqlite3
@@ -17,9 +19,10 @@ def get_navbar():
         <a href="/explicit-inscope" style="color:white; margin:0 15px; text-decoration:none;">Explicitly In-Scope</a>
         <a href="/implicit-inscope" style="color:white; margin:0 15px; text-decoration:none;">Implicitly In-Scope</a>
         <a href="/flds" style="color:white; margin:0 15px; text-decoration:none;">Free-level Domains</a>
+        <a href="/process-new-flds" style="color:white; margin:0 15px; text-decoration:none;">New FLDs</a>
+        <a href="/export" style="color:white; margin:0 15px; text-decoration:none;">Export</a>
         <a href="/processed" style="color:white; margin:0 15px; text-decoration:none;">Processed</a>
         <a href="/dead-domains" style="color:white; margin:0 15px; text-decoration:none;">Dead Domains</a>
-        <a href="/process-new-flds" style="color:white; margin:0 15px; text-decoration:none;">New FLDs</a>
     </div>
     """
 
@@ -455,8 +458,8 @@ def processed():
     inscope = re.sub(r"[^0-2]", "", inscope_raw)
     search_raw = request.args.get("keyword", "")
     search = re.sub(r"[^A-Za-z0-9-.]", "", search_raw)
-    fld_raw = request.args.get("fld_keyword", "")
-    fld = re.sub(r"[^A-Za-z0-9-.]", "", fld_raw)
+    tls_raw = request.args.get("tls_keyword", "")
+    tls = re.sub(r"[^A-Za-z0-9-.]", "", tls_raw)
   
     # Both domain and IP
     type_filter = "%"
@@ -474,9 +477,9 @@ def processed():
     search_filter = "%"
     if search:
         search_filter = search
-    fld_filter = "%"
-    if fld:
-        fld_filter = fld
+    tls_filter = "%"
+    if tls:
+        tls_filter = tls
     
     limit = int(request.args.get("limit", 50))
     page = int(request.args.get("page", 1))
@@ -487,11 +490,11 @@ def processed():
     
 
     # First, get total rows for the current filter
-    c.execute("SELECT COUNT(*) FROM processed WHERE fld_inscope LIKE ? AND type LIKE ? AND domainorip LIKE ? AND fld LIKE ?", (inscope_filter, type_filter, f"%{search_filter}%", f"%{fld_filter}%"))
+    c.execute("SELECT COUNT(*) FROM processed WHERE fld_inscope LIKE ? AND type LIKE ? AND domainorip LIKE ? AND certdata LIKE ?", (inscope_filter, type_filter, f"%{search_filter}%", f"%{tls_filter}%"))
     total_rows = c.fetchone()[0]
     total_pages = math.ceil(total_rows / limit)
 
-    c.execute("SELECT * FROM processed WHERE fld_inscope LIKE ? AND type LIKE ? AND domainorip LIKE ? AND fld LIKE ? LIMIT ? OFFSET ?", (inscope_filter, type_filter, f"%{search_filter}%", f"%{fld_filter}%", limit, offset))
+    c.execute("SELECT * FROM processed WHERE fld_inscope LIKE ? AND type LIKE ? AND domainorip LIKE ? AND certdata LIKE ? LIMIT ? OFFSET ?", (inscope_filter, type_filter, f"%{search_filter}%", f"%{tls_filter}%", limit, offset))
     
     rows = c.fetchall()
     conn.close()
@@ -516,7 +519,7 @@ def processed():
         <form method="GET">
             <label>
             <input type="text" name="keyword" value="{search}" placeholder="Search Domain or IP">
-            <input type="text" name="fld_keyword" value="{fld}" placeholder="Search FLD">
+            <input type="text" name="tls_keyword" value="{tls}" placeholder="Search TLS Data">
             <label for="limit">Rows per page:</label>
             <select name="limit">
                 <option value="10" {"selected" if limit == 10 else ""}>10</option>
@@ -547,7 +550,7 @@ def processed():
         if p == page:
             html += f"<strong style='margin:0 5px;'>{p}</strong>"
         else:
-            html += f"<a href='?page={p}&limit={limit}&fld_inscope={inscope}&keyword={search}&fld_keyword={fld}&type={datatype}' style='margin:0 5px;'>{p}</a>"
+            html += f"<a href='?page={p}&limit={limit}&fld_inscope={inscope}&keyword={search}&tls_keyword={tls}&type={datatype}' style='margin:0 5px;'>{p}</a>"
     html += "</div>"
 
     html +="""
@@ -557,11 +560,12 @@ def processed():
                 <th>Domain or IP</th>
                 <th>Type</th>
                 <th>FLD In Scope?</th>
+                <th>TLS Data (CN,SAN,SAN,SAN...)</th>
             </tr>
     """
     i = 1
     for row in rows:
-        html += f"<tr><td>{i}</td><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td></tr>"
+        html += f"<tr><td>{i}</td><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[4]}</td></tr>"
         i=i+1
     html += "\n</table>\n"
 
@@ -571,11 +575,83 @@ def processed():
         if p == page:
             html += f"<strong style='margin:0 5px;'>{p}</strong>"
         else:
-            html += f"<a href='?page={p}&limit={limit}&fld_inscope={inscope}&keyword={search}&fld_keyword={fld}&type={datatype}' style='margin:0 5px;'>{p}</a>"
+            html += f"<a href='?page={p}&limit={limit}&fld_inscope={inscope}&keyword={search}&tls_keyword={tls}&type={datatype}' style='margin:0 5px;'>{p}</a>"
     html += "</div>"
     html += "\n</body>\n</html>"
 
     return html
+
+@app.route("/export", methods=["POST","GET"])
+def export():
+    HTML_PAGE = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Export DB</title>
+    </head>
+    <style>
+        body {{ font-family: Arial, sans-serif; }}
+        h2 {{ text-align: center; }}
+        form {{ text-align: center; margin-bottom: 20px; }}
+    </style>
+    <body>
+        {get_navbar()}
+        <h2>Export DNSscope DB to Excel</h2>
+        <form action="/export" method="POST">
+            <button type="submit">Export to Excel</button>
+        </form>
+    </body>
+    </html>
+    """
+    if request.method == 'POST':
+        db_path = "DNSscope.db"
+        conn = sqlite3.connect(db_path)
+        db = conn.cursor()
+        # Create Excel workbook
+        wb = Workbook()
+        default_sheet = wb.active  # openpyxl creates a default sheet
+        wb.remove(default_sheet)   # remove default sheet
+
+        # Get all table names from SQLite
+        db.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = db.fetchall()
+
+        for (table_name,) in tables:
+            # Create a new sheet for each table
+            ws = wb.create_sheet(title=table_name)
+
+            # Get column names
+            db.execute(f"PRAGMA table_info({table_name})")
+            columns = [col[1] for col in db.fetchall()]
+            ws.append(columns)  # write header row
+
+            # Get all rows
+            db.execute(f"SELECT * FROM {table_name}")
+            for row in db.fetchall():
+                ws.append(row)
+
+        # Save Excel file
+        output_file = "DNSscope_export.xlsx"
+        wb.save(output_file)
+
+        # Close DB connection
+        conn.close()
+
+        # Save workbook to BytesIO
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        print(f"Export complete. Saved to {output_file}")
+        return send_file(
+        output,
+        as_attachment=True,
+        download_name="DNSscope_export.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        return HTML_PAGE
+
 
 if __name__ == "__main__":
     if not os.path.exists(DB_FILE):

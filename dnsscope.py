@@ -29,7 +29,7 @@ createtable = "CREATE TABLE IF NOT EXISTS "
 db.execute(createtable + "dead_domains(domain,fld_inscope,UNIQUE(domain))")
 db.execute(createtable + "flds(fld,fld_inscope,whoisdata,UNIQUE(fld))")
 db.execute(createtable + "data(ip,domains,ip_inscope,UNIQUE(ip))")
-db.execute(createtable + "processed(domainorip,type,fld_inscope,fld,UNIQUE(domainorip))")
+db.execute(createtable + "processed(domainorip,type,fld_inscope,fld,certdata,UNIQUE(domainorip))")
 
 flds_ignore = ["googleusercontent.com","amazonaws.com","akamaitechnologies.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","cloudfront.net","awsglobalaccelerator.com","outlook.com","microsoft.com","office365.com","office.com","office.net","windows.net","microsoftonline.com","azure.net","live.com","outlook.com","microsoft.com","office365.com","msidentity.com","windowsazure.us","live-int.com","microsoftonline-p-int.com","microsoftonline-int.com","microsoftonline-p.net","microsoftonline-p.com","windows-ppe.net","microsoft-ppe.com","passport-int.com","microsoftazuread-sso.com","azure-ppe.net","ccsctp.com","b2clogin.com","authapp.net","azure-int.net","secureserver.net","windows-int.net","microsoftonline-pst.com","microsoftonline-p-int.net","sl-reverse.com","incapdns.net","comcastbusiness.net","akamaized.net","cloudflaressl.com", "wpengine.com"]
 
@@ -97,7 +97,7 @@ def get_certificate(host, port=443):
         "Could not get TLS Certificate from %s on port %i" % (host,port)
 
 def TLSenum(hostname,port=443):
-    # This should actually grab CN and SAN. Returns List in format of hostname/ip,CN,SAN,SAN,SAN,SAN,etc.
+    # This should actually grab CN and SAN. Returns List in format of CN,SAN,SAN,SAN,SAN,etc.
     try:
         log("Attempting to get certificate for %s" % hostname)
         certificate = get_certificate(hostname,port)
@@ -244,6 +244,7 @@ def processDomain(domain, ports):
         db.execute("INSERT OR REPLACE INTO dead_domains VALUES(?,?)", (domain,fld_inscope))
         return 0
     ignore = False
+    certdata = []
     for ignorefld in flds_ignore:
         if ignorefld in fld:
             log("(-) FLD is in list of FLDs to ignore. Ignoring %s" % fld)
@@ -256,28 +257,34 @@ def processDomain(domain, ports):
             resolves = fDNS(domain,True,fld)
             if resolves: 
                 for port in ports:
-                    TLSenum(domain,port)
+                    cert = TLSenum(domain,port)
+                    log(str(cert))
+                    certdata.append(cert)
         else:
             log("FLD not in scope. Will return to %s if FLD is added to scope" % domain)
-    db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?)",(domain,"domain",fld_inscope,fld))
+    certdata = str(certdata)
+    db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?,?)",(domain,"domain",fld_inscope,fld,certdata))
     log("Finished processing domain: %s" %domain)
 
-def processIP(ip):
+def processIP(ip,ports):
     log("")
     log("Processing IP: %s" %ip)
     rDNS(ip)
     db.execute("SELECT ip_inscope FROM data WHERE ip=?",(ip,))
     result = db.fetchone()
+    certdata = []
     if result == 1:
         for port in ports:
-            TLSenum(ip,port)
+            cert = TLSenum(ip,port)
+            certdata.append(cert)
     log("Finished Processing IP: %s" %ip)
-    db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?)",(ip,"IP_ADDRESS","NA","NA"))
+    certdata = str(certdata)
+    db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?,?)",(ip,"IP_ADDRESS","NA","NA",certdata))
 
 def populateWhois(flds):
     log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
     # Currently this just grabs and populates whoisdata for the provided list
-    for fld in flds_new:
+    for fld in flds:
         fld = fld[0]
         # TODO - check if whoisdata field is already populated before grabbing whois data
         whoisdata = json.dumps(getwhois(fld))
@@ -338,7 +345,7 @@ def process(ports):
             i=i+1
             ip = IPq.pop()
             if not alreadyProcessed(ip):
-                processIP(ip)
+                processIP(ip,ports)
         if not Dq and not IPq:
             log("(+++) Finished processing IP and Domain queues\n\n\n") 
             log("---------------------------------------------------------------------------\n")
@@ -387,7 +394,7 @@ if __name__ == '__main__':
         whoisdata = json.dumps(getwhois(domain))
         db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,domain))
     ports = {}
-    if args.notls:
+    if not args.notls:
        ports={443}
        if args.ports: 
            for x in args.ports: ports.add(int(x))
