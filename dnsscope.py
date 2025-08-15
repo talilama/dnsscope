@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 
 import server
-import sqlite3, json, sys, tty, socket, ssl, ipaddress, logging, argparse, termios, OpenSSL
+import sqlite3, json, sys, tty, socket, ssl, ipaddress, logging, argparse, termios, OpenSSL, re, requests
+from bs4 import BeautifulSoup
 from ipwhois import IPWhois
 from dns import resolver, reversename
 import sublister as sl
@@ -193,6 +194,51 @@ def sublister(domain):
     subdomains = sl.sublister_main(domain, 30, None, None, silent=False, verbose=False, enable_bruteforce=bf, engines=None)
     return subdomains
 
+def get_crt_sh(domain):
+    try:
+        log("Searching for certificates associated with %s via https://crt.sh. This may take a while..." % domain)
+        url = f"https://crt.sh/?q={domain}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.8',
+            'Accept-Encoding': 'gzip',
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        unique_domains = set()
+
+        # Find all tables on the page
+        tables = soup.find_all("table")
+        for table in tables:
+            headers = [th.get_text(strip=True) for th in table.find_all("th")]
+            if "Common Name" not in headers:
+                continue  # skip tables without the "Common Name" column
+
+            cn_index = headers.index("Common Name")  # find column index dynamically
+
+            # Iterate rows after the header
+            for row in table.find_all("tr")[1:]:
+                cells = row.find_all("td")
+                if len(cells) <= cn_index:
+                    continue
+
+                # Use separator="\n" to split <br> into separate lines
+                cn_text = cells[cn_index].get_text(separator="\n").strip()
+
+                # Split by newlines, then strip each domain
+                for domain_entry in cn_text.split("\n"):
+                    domain_entry = domain_entry.strip()
+                    if domain_entry:
+                        unique_domains.add(domain_entry)
+
+        return sorted(unique_domains)
+    except Exception as e:
+        log("Error getting subdomains from https://crt.sh. \nException is: %s" % e)
+
+
 def isIP(ip):
     try:
         ipaddress.ip_address(ip)
@@ -205,12 +251,19 @@ def isIP(ip):
 # Take a FLD and return subdomains identified with sublister
 def SDenum(domain):
     subdomains = set()
-    SLresults = sublister(domain)
-    for sd in SLresults:
+    crt_sh_results = get_crt_sh(domain)
+    crt_count = len(crt_sh_results)
+    log("(+) Found %d new subdomains via crt.sh" % crt_count)
+    for sd in crt_sh_results:
+        subdomains.add(sd)
+    SL_results = sublister(domain)
+    for sd in SL_results:
         # Deal with sublist3r multiple entries separated by <BR>:
         if "<BR>" in sd:
             for x in sd.split("<BR>"): subdomains.add(x)
         else: subdomains.add(sd)
+    sl_count = len(subdomains) - crt_count
+    log("(+) Found %d new subdomains via sublist3r" % sl_count)
     for subdomain in subdomains:
         subdomain = subdomain.lower()
         if not alreadyProcessed(subdomain) and subdomain != domain:
@@ -242,7 +295,7 @@ def processDomain(domain, ports):
         fld_inscope = fldinscope(fld)
     except:
         log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
-        db.execute("INSERT OR REPLACE INTO dead_domains VALUES(?,?)", (domain,fld_inscope))
+        db.execute("INSERT OR REPLACE INTO dead_domains VALUES(?,?)", (domain,"unknown"))
         return 0
     ignore = False
     certdata = []
@@ -282,7 +335,7 @@ def processIP(ip,ports):
     db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?,?)",(ip,"IP_ADDRESS","NA","NA",certdata))
 
 def populateWhois(flds):
-    log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
+    log("(+) Grabbing whois data for new FLDs (printed below). Be patient, this can take a while for large environments!\n")
     log(flds)
     # Grabs and populates whoisdata for the provided list
     for fld in flds:

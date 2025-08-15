@@ -942,10 +942,10 @@ def sublister_main(domain, threads, savefile, ports, silent, verbose, enable_bru
     chosenEnums = []
 
     if engines is None:
+        # Removed CrtSearch as we implemented this in dnsscope
         chosenEnums = [
             Virustotal, DNSdumpster, BaiduEnum, YahooEnum, GoogleEnum, BingEnum, AskEnum,
-            NetcraftEnum, ThreatCrowd,
-            CrtSearch, PassiveDNS
+            NetcraftEnum, ThreatCrowd, PassiveDNS
         ]
     else:
         engines = engines.split(',')
@@ -984,8 +984,8 @@ def sublister_main(domain, threads, savefile, ports, silent, verbose, enable_bru
         if savefile:
             write_file(savefile, subdomains)
 
-        if not silent:
-            dnsscope.log(Y + "[-] Total Unique Subdomains Found: %s" % len(subdomains) + W)
+        #if not silent:
+            #dnsscope.log(Y + "[-] Total Unique Subdomains Found: %s" % len(subdomains) + W)
 
         if ports:
             if not silent:
