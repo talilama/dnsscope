@@ -1021,8 +1021,5 @@ if __name__ == "__main__":
         verbose = True
     if args.no_color:
         no_color()
-    if vt_apikey == 'PASTE YOUR VIRUSTOTAL KEY HERE':
-        print("No VirusTotal API key provided. Skipping VirusTotal Module.")
-   # banner()
     res = sublister_main(domain, threads, savefile, ports, silent=False, verbose=verbose, enable_bruteforce=enable_bruteforce, engines=engines)
 
