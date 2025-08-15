@@ -7,7 +7,7 @@ Takes a list of IPs and TLDs in scope and automates DNS enumeration. This includ
 * Dead Domains - Identified domain does not resolve
 
 ## Usage
-Specify an input file with the target scope using the -i/--infile flag (supports IP addresses and CIDR ranges). Additionally, pass a list or single top-level domain using -D/-d to run subdomain enumeration. 
+Specify an input file with the target scope using the -i/--infile flag (supports IP addresses and CIDR ranges). Additionally, pass a list or single top-level domain using -D/-d to run subdomain enumeration. Don't forget to add a VirusTotal API key to the top of sublister.py for more rubust subdomain enumeration via Sublist3r. 
 
 ### Basic Usage Examples:
 Common usage with single domain:
@@ -20,7 +20,7 @@ Multiple domains in a file
 
 Run TLSenum on additional ports
 
-    python3 dnsscope.py -i scope_ips -d targetdomain.com -p 8443
+    python3 dnsscope.py -i scope_ips -d targetdomain.com -p 8443 8080 9443
 
 Run the web server:
     
