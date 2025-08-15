@@ -7,6 +7,7 @@
 vt_apikey = 'PASTE YOUR VIRUSTOTAL KEY HERE'
 
 # modules in standard library
+import dnsscope
 import re
 import sys
 import os
@@ -71,10 +72,12 @@ else:
     B = '\033[94m'  # blue
     R = '\033[91m'  # red
     W = '\033[0m'   # white
+    # no color please
+    G = Y = B = R = W = G = Y = B = R = W = ''
 
 def no_color():
     global G, Y, B, R, W
-    G = Y = B = R = W = ''
+    G = Y = B = R = W = '\t'
 
 def parser_error(errmsg):
     banner()
@@ -145,7 +148,7 @@ class enumratorBase(object):
         self.silent = silent
         self.verbose = verbose
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:105.0) Gecko/20100101 Firefox/105.0', 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.8',
             'Accept-Encoding': 'gzip',
@@ -154,7 +157,7 @@ class enumratorBase(object):
 
     def print_(self, text):
         if not self.silent:
-            print(text)
+            dnsscope.log(text)
         return
 
     def print_banner(self):
@@ -267,9 +270,10 @@ class GoogleEnum(enumratorBaseThreaded):
     def __init__(self, domain, subdomains=None, q=None, silent=False, verbose=True):
         subdomains = subdomains or []
         base_url = "https://google.com/search?q={query}&btnG=Search&hl=en-US&biw=&bih=&gbv=1&start={page_no}&filter=0"
+        #base_url = "https://google.com/search?client=firefox-b-1-d&q={query}"
         self.engine_name = "Google"
-        self.MAX_DOMAINS = 11
-        self.MAX_PAGES = 200
+        self.MAX_DOMAINS = 10
+        self.MAX_PAGES = 199
         super(GoogleEnum, self).__init__(base_url, self.engine_name, domain, subdomains, q=q, silent=silent, verbose=verbose)
         self.q = q
         return
@@ -819,7 +823,7 @@ class CrtSearch(enumratorBaseThreaded):
                             self.print_("%s%s: %s%s" % (R, self.engine_name, W, subdomain))
                         self.subdomains.append(subdomain.strip())
         except Exception as e:
-            print(e)
+            dnsscope.log(e)
             pass
 
 class PassiveDNS(enumratorBaseThreaded):
@@ -891,6 +895,7 @@ class portscan():
 
 
 def sublister_main(domain, threads, savefile, ports, silent, verbose, enable_bruteforce, engines):
+    no_color()
     bruteforce_list = set()
     search_list = set()
 
@@ -916,7 +921,7 @@ def sublister_main(domain, threads, savefile, ports, silent, verbose, enable_bru
     parsed_domain = urlparse.urlparse(domain)
 
     if not silent:
-        print(B + "[-] Enumerating subdomains now for %s" % parsed_domain.netloc + W)
+        dnsscope.log(B + "[-] Enumerating subdomains now for %s" % parsed_domain.netloc + W)
 
     if verbose and not silent:
         print(Y + "[-] verbosity is enabled, will show the subdomains results in realtime" + W)
@@ -980,11 +985,11 @@ def sublister_main(domain, threads, savefile, ports, silent, verbose, enable_bru
             write_file(savefile, subdomains)
 
         if not silent:
-            print(Y + "[-] Total Unique Subdomains Found: %s" % len(subdomains) + W)
+            dnsscope.log(Y + "[-] Total Unique Subdomains Found: %s" % len(subdomains) + W)
 
         if ports:
             if not silent:
-                print(G + "[-] Start port scan now for the following ports: %s%s" % (Y, ports) + W)
+                dnsscope.log(G + "[-] Start port scan now for the following ports: %s%s" % (Y, ports) + W)
             ports = ports.split(',')
             pscan = portscan(subdomains, ports)
             pscan.run()

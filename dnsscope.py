@@ -188,9 +188,9 @@ def fDNS(name,fldinscope,fld):
 
 # run sublist3r on domain and do forward DNS lookup for each
 def sublister(domain):
-    log("Searching for subdomains of %s. This may take a while..." % domain)
+    log("Searching for subdomains of %s via sublist3r. This may take a while..." % domain)
     bf = False
-    subdomains = sl.sublister_main(domain, 30, None, None, silent=True, verbose=False, enable_bruteforce=bf, engines=None)
+    subdomains = sl.sublister_main(domain, 30, None, None, silent=False, verbose=False, enable_bruteforce=bf, engines=None)
     return subdomains
 
 def isIP(ip):
@@ -283,6 +283,7 @@ def processIP(ip,ports):
 
 def populateWhois(flds):
     log("\n(+) Grabbing whois data for new FLDs. Be patient, this can take a while for large environments!\n")
+    log(flds)
     # Grabs and populates whoisdata for the provided list
     for fld in flds:
         db.execute("SELECT whoisdata from flds WHERE fld = ?", (fld,))
@@ -420,7 +421,6 @@ if __name__ == '__main__':
         Dq.add(domain)
         db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (domain,"true",""))
         subdomains = SDenum(domain)
-    log("(+) Grabbing whoisdata for %s. This may take a while..." % domain)
     populateWhois(initdomains)
     
     con.commit()
