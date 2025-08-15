@@ -7,20 +7,24 @@ Takes a list of IPs and TLDs in scope and automates DNS enumeration. This includ
 * Dead Domains - Identified domain does not resolve
 
 ## Usage
-Specify an input file with the target scope using the -i/--infile flag (supports IP addresses and CIDR ranges). Additionally, pass a list or single top-level domain using -D/-d to run subdomain enumeration. By default, only DNS recon is done, but specifying the --tls flag will additionally grab the TLS certificate and check for domains in the Common Name and Subject Alternate Name fields. 
+Specify an input file with the target scope using the -i/--infile flag (supports IP addresses and CIDR ranges). Additionally, pass a list or single top-level domain using -D/-d to run subdomain enumeration. 
 
 ### Basic Usage Examples:
 Common usage with single domain:
 
-    python3 dnsscope.py -i scope_ips -d targetdomain.com --tls
+    python3 dnsscope.py -i scope_ips -d targetdomain.com
 
 Multiple domains in a file
 
-    python3 dnsscope.py -i scope_ips -D domainsfile.txt --tls -o dnsrecon.txt
+    python3 dnsscope.py -i scope_ips -D domainsfile.txt
 
 Run TLSenum on additional ports
 
-    python3 dnsscope.py -i scope_ips -d targetdomain.com --tls -p 8443
+    python3 dnsscope.py -i scope_ips -d targetdomain.com -p 8443
+
+Run the web server:
+    
+    python3 server.py
 	
 
 
