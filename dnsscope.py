@@ -362,6 +362,8 @@ def process(ports):
 if __name__ == '__main__':
     clargs = " ".join(sys.argv)
     log("Starting %s" % clargs)
+    if 'PASTE YOUR VIRUSTOTAL KEY HERE' in sl.vt_apikey:
+        log("\n(-) VirusTotal API Key Not Found!\nYou should add your VirusTotal API key to the top of sublister.py for more robust subdomain enumeration\n\n")
     if args.server:
         server.app.run(host="127.0.0.1", port=5432, debug=False)
         exit(0)
