@@ -409,7 +409,6 @@ def process(ports):
             flds_new = [t[0] for t in db.fetchall()]
             if flds_new:
                 log("%d New FLDs discovered for additional processing!\n\n" % len(flds_new)) 
-                log(flds_new)
                 populateWhois(flds_new)
         con.commit()
   
