@@ -263,7 +263,7 @@ def SDenum(domain):
             for x in sd.split("<BR>"): subdomains.add(x)
         else: subdomains.add(sd)
     sl_count = len(subdomains) - crt_count
-    log("(+) Found %d new subdomains via sublist3r" % sl_count)
+    log("(+) Found %d new/unique subdomains via sublist3r" % sl_count)
     for subdomain in subdomains:
         subdomain = subdomain.lower()
         if not alreadyProcessed(subdomain) and subdomain != domain:
