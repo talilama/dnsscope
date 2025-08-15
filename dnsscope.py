@@ -15,7 +15,7 @@ parser.add_argument('-d', '--domain', help='run subdomain enumeration on a singl
 parser.add_argument('-D', '--domains', help='File with FLDs to run subdomain enumeration')
 parser.add_argument('-s', '--subdomains', help='File with FQDN of subdomains to include in scope')
 parser.add_argument('--notls', action="store_true", help='Skip TLS checks and only run pure DNS enumeration')
-parser.add_argument('-p', '--ports', nargs='+', default='443', help='Provide additional ports besides 443 to check for TLS certificate CNs --ports 8443,9443')
+parser.add_argument('-p', '--ports', nargs='+', default='443', help='Provide additional ports besides 443 to check for TLS certificate CNs. i.e. to run TLSenum on ports 443,8443,9443,and 8080, run: --ports 8443 9443 8080')
 parser.add_argument('--server', action = "store_true",  help='Just runs the webserver on port http://localhost:5432')
 parser.add_argument('--reprocess', action = "store_true",  help='This will delete all entries in the "processed" table. This means all data will remain present but all identified domains and IP addressed will be treated as new and will be reprocessed.')
 args = parser.parse_args()
@@ -100,7 +100,7 @@ def get_certificate(host, port=443):
 def TLSenum(hostname,port=443):
     # This should actually grab CN and SAN. Returns List in format of CN,SAN,SAN,SAN,SAN,etc.
     try:
-        log("Attempting to get certificate for %s" % hostname)
+        log("Attempting to get certificate for %s:%s" % (hostname,str(port)))
         certificate = get_certificate(hostname,port)
         x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, certificate)
     
@@ -365,6 +365,7 @@ if __name__ == '__main__':
     clargs = " ".join(sys.argv)
     log("Starting %s" % clargs)
     
+    
     if 'PASTE YOUR VIRUSTOTAL KEY HERE' in sl.vt_apikey:
         log("\n(-) VirusTotal API Key Not Found!\nYou should add your VirusTotal API key to the top of sublister.py for more robust subdomain enumeration\n\n")
     
@@ -391,6 +392,11 @@ if __name__ == '__main__':
         parser.print_help()
         
         exit(-1)
+    
+    ports = set()
+    if not args.notls:
+       if args.ports: 
+           for x in args.ports: ports.add(int(x))
 
     # Ingest FLDs and run subdomain enumeration on all of them
     initdomains = set()
@@ -409,11 +415,6 @@ if __name__ == '__main__':
         log("(+) Grabbing whoisdata for %s. This may take a while..." % domain)
         whoisdata = json.dumps(getwhois(domain))
         db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,domain))
-    ports = {}
-    if not args.notls:
-       ports={443}
-       if args.ports: 
-           for x in args.ports: ports.add(int(x))
     if args.subdomains:
         f=open(args.subdomains, "r")
         for sd in f:
