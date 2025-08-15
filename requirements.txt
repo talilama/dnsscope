@@ -5,3 +5,4 @@ requests
 ipwhois
 pyOpenSSL
 bs4
+openpyxl
