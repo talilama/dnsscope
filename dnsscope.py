@@ -286,10 +286,12 @@ def populateWhois(flds):
     # Currently this just grabs and populates whoisdata for the provided list
     for fld in flds:
         fld = fld[0]
-        # TODO - check if whoisdata field is already populated before grabbing whois data
-        whoisdata = json.dumps(getwhois(fld))
-        db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,fld))
-        con.commit()
+        db.execute("SELECT whoidata from flds WHERE fld = ?", (fld,))
+        result = db.fetchone()
+        if not result:
+            whoisdata = json.dumps(getwhois(fld))
+            db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,fld))
+            con.commit()
 
 
 def processNewFlds(flds_new):
