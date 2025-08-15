@@ -24,7 +24,7 @@ Run TLSenum on additional ports
 
 Run the web server:
     
-    python3 server.py
+    python3 dnsscope.py --server
 	
 
 
