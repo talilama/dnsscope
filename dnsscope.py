@@ -342,9 +342,11 @@ def populateWhois(flds):
         db.execute("SELECT whoisdata from flds WHERE fld = ?", (fld,))
         result = db.fetchone()
         if result[0] == '':
+            log("Grabbing whoisdata for %s" % fld)
             whoisdata = json.dumps(getwhois(fld))
             db.execute("UPDATE flds SET whoisdata = ? WHERE fld = ?", (whoisdata,fld))
             con.commit()
+            log("(+) Success!")
 
 
 def processNewFlds(flds_new):
