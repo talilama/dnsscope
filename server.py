@@ -285,7 +285,7 @@ def free_level_domains():
             </select>
             <br><br><b>Filter on whether FLD is in-scope</b><br><br>
             <label><input type="radio" name="fld_inscope" value="3" {"checked" if inscope_filter == "%" else ""}>All</label>
-            <label><input type="radio" name="fld_inscope" value="0" {"checked" if inscope_filter == "false" else ""}>FLD out-of-scope</label>
+            <label><input type="radio" name="fld_inscope" value="0" {"checked" if inscope_filter == "pending" else ""}>FLD out-of-scope</label>
             <label><input type="radio" name="fld_inscope" value="1" {"checked" if inscope_filter == "true" else ""}>FLD in-scope</label>
             <br><br><input type="submit" value="Apply Search Filter">
         </form>
