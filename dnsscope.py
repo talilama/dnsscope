@@ -191,7 +191,7 @@ def fDNS(name,fldinscope,fld):
 def sublister(domain):
     log("Searching for subdomains of %s via sublist3r. This may take a while..." % domain)
     bf = False
-    subdomains = sl.sublister_main(domain, 30, None, None, silent=False, verbose=False, enable_bruteforce=bf, engines=None)
+    subdomains = sl.sublister_main(domain, 30, None, None, silent=True, verbose=False, enable_bruteforce=bf, engines=None)
     return subdomains
 
 def get_crt_sh(domain):
@@ -475,6 +475,15 @@ if __name__ == '__main__':
     for domain in initdomains:
         Dq.add(domain)
         db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (domain,"true",""))
+        # grab all domains for reprocessing that match the fld marked as newly in-scope
+        db.execute("SELECT domainorip FROM processed WHERE fld = ?", (fld,)) 
+        revisit_queue = db.fetchall()
+        for domain in revisit_queue:
+            domain = domain[0]
+            log("(+) Adding Domain %s back to queue to be processed - FLD was marked in-scope" % domain)
+            Dq.add(domain)
+            db.execute("DELETE FROM processed WHERE domainorip = ?", (domain,))
+ 
         subdomains = SDenum(domain)
     populateWhois(initdomains)
     
