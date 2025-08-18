@@ -4,7 +4,7 @@
 # By Ahmed Aboul-Ela - twitter.com/aboul3la
 
 # Define your Virustotal API key
-vt_apikey = 'PASTE YOUR VIRUSTOTAL KEY HERE'
+vt_apikey = 'PASTE YOUR VIRUSTOTAL KEY HERE' 
 
 # modules in standard library
 import dnsscope

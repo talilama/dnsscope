@@ -237,6 +237,7 @@ def get_crt_sh(domain):
         return sorted(unique_domains)
     except Exception as e:
         log("Error getting subdomains from https://crt.sh. \nException is: %s" % e)
+        return set() 
 
 
 def isIP(ip):
@@ -335,7 +336,7 @@ def processIP(ip,ports):
     db.execute("INSERT OR REPLACE INTO processed VALUES(?,?,?,?,?)",(ip,"IP_ADDRESS","NA","NA",certdata))
 
 def populateWhois(flds):
-    log("(+) Grabbing whois data for new FLDs (printed below). Be patient, this can take a while for large environments!\n")
+    log("(+) Grabbing whois data for the below FLDs. Be patient, this can take a while for large environments!\n")
     log(flds)
     # Grabs and populates whoisdata for the provided list
     for fld in flds:
