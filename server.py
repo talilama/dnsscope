@@ -202,7 +202,7 @@ def process_new_flds():
 def run_in_background(flds):
     dnsscope.processNewFlds(flds)
 
-@app.route("/flds")
+@app.route("/flds", methods = ["GET"])
 def free_level_domains():
     search_flag = request.args.get("search", "").lower() == "true"
     inscope_raw = request.args.get("fld_inscope", "")
@@ -265,6 +265,7 @@ def free_level_domains():
             form {{ text-align: center; margin-bottom: 20px; }}
             form.fld {{ text-align: left; }}
             label {{ text-align: left; }}
+            p {{ text-align: center; }}
         </style>
     </head>
     <body>
@@ -272,7 +273,6 @@ def free_level_domains():
         <h2>All Free-Level Domains (FLDs) discovered during processing</h2>
         <form method="GET">
             <input type="hidden" name="search" value="true">
-            <label>
             <input type="text" name="fld_keyword" value="{fld_filter}" placeholder="Search FLDs">
             <input type="text" name="whois_keyword" value="{whois_filter}" placeholder="Search whoisdata">
             <label for="limit">Rows per page:</label>
@@ -289,8 +289,8 @@ def free_level_domains():
             <label><input type="radio" name="fld_inscope" value="1" {"checked" if inscope_filter == "true" else ""}>FLD in-scope</label>
             <br><br><input type="submit" value="Apply Search Filter">
         </form>
-        <br><br><br><u>Total Rows:
-        {total_rows}</u>
+        <br><br><br><u><p>Total Rows:
+        {total_rows}</u></p>
         """
     
     # Pagination links top
@@ -344,7 +344,7 @@ def free_level_domains():
 
     return html
 
-@app.route("/dead-domains")
+@app.route("/dead-domains", methods=["GET"])
 def dead_domains():
     search_flag = request.args.get("search", "").lower() == "true"
     domain_filter_raw = request.args.get("domain", "")
@@ -449,7 +449,7 @@ def dead_domains():
 
     return html
 
-@app.route("/processed")
+@app.route("/processed", methods=["GET"])
 def processed():
     # Trying different logic to prevent the cluster of SELECT statements
     datatype_raw = request.args.get("type", "")
@@ -511,13 +511,13 @@ def processed():
             h1 {{ text-align: center; }}
             h2 {{ text-align: center; }}
             form {{ text-align: center; margin-bottom: 20px; }}
+            p {{ text-align: center; }}
         </style>
     </head>
     <body>
         {get_navbar()}
         <h2>Processed Domains and IP Addresses</h2>
-        <form method="GET">
-            <label>
+        <form method="GET", action="/processed">
             <input type="text" name="keyword" value="{search}" placeholder="Search Domain or IP">
             <input type="text" name="tls_keyword" value="{tls}" placeholder="Search TLS Data">
             <label for="limit">Rows per page:</label>
@@ -539,8 +539,8 @@ def processed():
             <label><input type="radio" name="fld_inscope" value="1" {"checked" if inscope_filter == "1" else ""}>In-Scope</label>
             <label><input type="radio" name="fld_inscope" value="0" {"checked" if inscope_filter == "0" else ""}>Not In-Scope</label>
         </form>
-        <p><br><u>Total Rows:
-        {total_rows}</p></u>
+        <p><u>Total Rows:
+        {total_rows}</u></p>
         """
     
 
