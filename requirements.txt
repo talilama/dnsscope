@@ -6,3 +6,4 @@ ipwhois
 pyOpenSSL
 bs4
 openpyxl
+flask
