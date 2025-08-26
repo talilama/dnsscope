@@ -476,6 +476,7 @@ if __name__ == '__main__':
         Dq.add(domain)
         db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (domain,"true",""))
         # grab all domains for reprocessing that match the fld marked as newly in-scope
+        fld = get_fld(domain, fix_protocol=True)
         db.execute("SELECT domainorip FROM processed WHERE fld = ?", (fld,)) 
         revisit_queue = db.fetchall()
         for domain in revisit_queue:
