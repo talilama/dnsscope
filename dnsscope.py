@@ -422,7 +422,9 @@ if __name__ == '__main__':
     log("Starting %s" % clargs)
     
     if args.server:
-        server.app.run(host="127.0.0.1", port=5432, debug=False)
+        port = 5432
+        log("(+) Serving on port %s\n" % 5432) 
+        server.app.run(host="127.0.0.1", port=port, debug=False)
         exit(0)
     
     if 'PASTE YOUR VIRUSTOTAL KEY HERE' in sl.vt_apikey:
@@ -476,7 +478,7 @@ if __name__ == '__main__':
         Dq.add(domain)
         db.execute("INSERT OR REPLACE INTO flds VALUES(?,?,?)", (domain,"true",""))
         # grab all domains for reprocessing that match the fld marked as newly in-scope
-        db.execute("SELECT domainorip FROM processed WHERE fld = ?", (fld,)) 
+        db.execute("SELECT domainorip FROM processed WHERE fld = ?", (domain,)) 
         revisit_queue = db.fetchall()
         for domain in revisit_queue:
             domain = domain[0]
