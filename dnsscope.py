@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from ipwhois import IPWhois
 from dns import resolver, reversename
 import sublister as sl
-from tld import get_tld
+from tld import get_fld
 
 # Setup Argument Parameters 
 progname = 'DNSscope'
@@ -292,7 +292,7 @@ def processDomain(domain, ports):
     log("")
     log("Processing domain: %s" %domain)
     try:
-        fld = get_tld(domain, fix_protocol=True)
+        fld = get_fld(domain, fix_protocol=True)
         fld_inscope = fldinscope(fld)
     except:
         log("(+) Getting FLD for %s Failed! This may suggest an internal domain name!" % domain)
