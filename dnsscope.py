@@ -90,7 +90,7 @@ def get_certificate(host, port=443):
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode=ssl.CERT_NONE
-        conn = socket.create_connection((host, port),0.5)
+        conn = socket.create_connection((host, port),1.5)
         sock = context.wrap_socket(conn, server_hostname=host)
         der_cert = sock.getpeercert(True)
         sock.close()
@@ -98,41 +98,50 @@ def get_certificate(host, port=443):
     except:
         "Could not get TLS Certificate from %s on port %i" % (host,port)
 
-def TLSenum(hostname,port=443):
-    # This should actually grab CN and SAN. Returns List in format of CN,SAN,SAN,SAN,SAN,etc.
+def TLSenum(hostname, port=443):
     try:
-        log("Attempting to get certificate for %s:%s" % (hostname,str(port)))
-        certificate = get_certificate(hostname,port)
-        x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, certificate)
-    
-        result = {
-            'subject': dict(x509.get_subject().get_components()),
-            'issuer': dict(x509.get_issuer().get_components()),
-        }
+        log(f"Attempting to get certificate for {hostname}:{port}")
 
-        extensions = (x509.get_extension(i) for i in range(x509.get_extension_count()))
-        extension_data = {e.get_short_name(): str(e) for e in extensions}
-        result.update(extension_data)
-        CN = result['subject'][b'CN'].decode("utf-8").lower()
+        certificate = get_certificate(hostname, port)
+        if not certificate:
+            raise ValueError("No certificate returned")
+
+        x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, certificate)
+
         certdata = set()
-        certdata.add(CN)
-        SANs = result[b'subjectAltName'].split(",")
-        for s in SANs:
-            SAN = s.split(":")[1].lower()
-            certdata.add(SAN)
+
+        # ---- Subject / CN ----
+        subject = dict(x509.get_subject().get_components())
+        if b'CN' in subject:
+            certdata.add(subject[b'CN'].decode().lower())
+
+        # ---- Extensions ----
+        for i in range(x509.get_extension_count()):
+            ext = x509.get_extension(i)
+            name = ext.get_short_name()
+
+            if name == b'subjectAltName':
+                sans = str(ext).split(",")
+                for san in sans:
+                    if ":" in san:
+                        value = san.split(":", 1)[1].strip().lower()
+                        certdata.add(value)
+
         log("(+) Success")
+
         for x in certdata:
             if not alreadyProcessed(x):
-                # Add this check to add to correct queue, since TLSenum can be called on IP addresses or domains
-                if isIP(x) and x not in IPq and x != hostname: 
-                    log("(+) TLSENUM DISCOVERY! ADDING TO IP QUEUE: %s" %x)
+                if isIP(x) and x not in IPq and x != hostname:
+                    log(f"(+) TLSENUM DISCOVERY! ADDING TO IP QUEUE: {x}")
                     IPq.add(x)
                 elif x not in Dq and x != hostname:
-                    log("(+) TLSENUM DISCOVERY! ADDING TO DOMAIN QUEUE: %s" %x)
+                    log(f"(+) TLSENUM DISCOVERY! ADDING TO DOMAIN QUEUE: {x}")
                     Dq.add(x)
+
         return certdata
-    except Exception as e: 
-        log("(-) Failed: %s" % e)
+
+    except Exception as e:
+        log(f"(-) Failed TLSenum for {hostname}:{port} → {e}")
         return False
 
 def getwhois(domain):
